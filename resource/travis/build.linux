@@ -1,0 +1,60 @@
+#!/bin/bash
+# (C)2016 LGB Gabor Lenart
+# https://github.com/lgblgblgb/xemu
+
+cd /srv/git || exit 1
+source .travis-info
+source .uploader
+rm -f .uploader
+
+echo "*** Running: $0 for $TRAVIS_OS_NAME"
+uname -a
+
+echo "*** Pre-build stuffs (wine)"
+DISPLAY=
+export DISPLAY
+echo "Trying to execute MingW gcc just to update Wine configuration"
+# This is an ugly blah-blah but I tried everything to force wine to able to
+# work without DISPLAY set. I dunno what's going wrong, why gcc.exe needs open
+# window etc :-@
+ls -l /srv/.wine/drive_c/MinGW/bin/gcc.exe
+for a in system.reg userdef.reg user.reg ; do
+	echo "WINE REGISTRY Version 2" > /srv/.wine/$a
+	echo "#arch=win32" >> /srv/.wine/$a
+done
+ls -l /srv/.wine/
+mv /srv/.wine/ /srv/.wine.OLD
+wine /srv/.wine.OLD/drive_c/MinGW/bin/gcc.exe --version 2>&1 </dev/null | cat
+mkdir -p /srv/.wine/drive_c
+mv /srv/.wine.OLD/drive_c/MinGW /srv/.wine/drive_c/MinGW
+wine /srv/.wine/drive_c/MinGW/bin/gcc.exe --version 2>&1 </dev/null | cat
+ls -l /srv/.wine/
+cd /srv/.wine
+fgrep -i mingw *.reg
+fgrep PATH *.reg
+cp system.reg /tmp/
+sed -i 's/^"PATH"=.*$/"PATH"=str(2):"C:\\\\windows\\\\system32;C:\\\\windows;C:\\\\windows\\\\system32\\\\wbem;C:\\\\MinGW\\\\bin"/' system.reg
+diff -u /tmp/system.reg system.reg
+
+echo "<<< MARK: BUILD ALL BEGIN >>>"
+cd /srv/git
+scons win32=1
+#rm -f build/bin/*
+#make all-arch
+ret="$?"
+echo "<<< MARK: BUILD ALL END >>>"
+
+echo "BUILD STATUS: $ret"
+
+
+if [ "$ret" = "0" ]; then
+	mkdir DEPLOY || exit 1
+	cp *.exe DEPLOY/
+	cd installer
+	echo "Building installer ..."
+	wine /usr/local/nsis/nsis-2.51/makensis.exe ep128emu.nsi
+	ls -la *.exe
+	cp *.exe ../DEPLOY/
+fi
+
+exit $ret

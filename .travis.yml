@@ -1,0 +1,39 @@
+sudo: required
+language: c
+git:
+  depth: 4
+os:
+- linux
+- osx
+matrix:
+  allow_failures:
+  - os: osx
+env:
+  linux_dist: ubuntu
+  linux_ver: 16.04
+  linux_init: "/lib/systemd/systemd"
+  linux_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
+services:
+- docker
+before_install:
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo docker pull ${linux_dist}:${linux_ver}
+  ; fi
+script:
+- resource/travis/store-travis-info
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then container_id_file=$(mktemp) ; export
+  container_id_file ; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo docker run --detach --volume="${PWD}":/srv/git:rw
+  ${linux_opts} ${linux_dist}:${linux_ver} "${linux_init}" > "${container_id_file}"
+  ; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo docker exec --tty "$(cat ${container_id_file})"
+  /srv/git/resource/travis/install.linux  ; fi
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]];   then resource/travis/install.osx ; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo docker stop "$(cat ${container_id_file})"
+  ; fi
+deploy:
+  provider: bintray
+  user: lgblgblgb
+  file: resource/travis/bintray-description.json
+  on: deploy
+  key:
+    secure: zZ/ERIagXG6+z5n33kacGotvqwiCmu3BndSwp9L3LWZ08yt0YX4AAlF3EXMApFg6hHa7VYGyRYyZSY4bKPkSInSkywOGgGURbJbVjXiaNxnYWzZYXHGZdhDc9qBllVzHSyYBeCwAUB6ceuASyxCmk7j/fFWQfoxgy6UPACUzmTzhV92pMvP0Nehn7dvWfLabiGVNadlg1KjasVnHOuLtOYdEDbn2bFxBwQsvOXisDTMW9kM2j2jJDSDTk10gRkG1bMZl6Qw9KCuZu6ljkZ4buz8Z2p2vR6MR2uxaPiHZqvBGyvuNPpuLpNvtvlKHDmEzZjKRRFEmzdAq4Lor07/mHrry/42UO9d5UcoyvVYxiB7dibDoB7XFSK79RMvjtbK5umf59BRGw2MtFC2YMAEp5Et/apOGOqimbmw3bm1MTawEzCR1OT34JWpHVMWubWoiJwY9PDIXKcQ61KYGKTP2G0umL4/VPWLV9wM87NCIGIvKnfDlSsAMJkUNFkVXPE5fpES1k9SFmH8JBXoF2/gnN3T91Zwkpg2xyDfy/iPdz29TuB83HzwZVNhUQu4ZMBFoWKkb62Xmh7UWyTGbK/TDv5t5+41pBYvzWw4eQ5hsnc3bo5cjXSJtsg7unDudQm8QG9gPeZrv6N9LcWx+8Qv6HMlftOmJuwcotKdnRonB2dY=

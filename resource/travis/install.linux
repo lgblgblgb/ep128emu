@@ -1,0 +1,97 @@
+#!/bin/bash
+# (C)2016 LGB Gabor Lenart
+# https://github.com/lgblgblgb/xemu
+
+echo "*** System information"
+source /srv/git/.travis-info
+hostname travis-lgb
+hostname
+uname -a
+id -a
+cat /etc/lsb-release
+set | grep TRAVIS
+
+echo "*** Updating package info"
+CMD="apt-get -yq update"
+echo $CMD
+$CMD &> /tmp/apt-update.log < /dev/null
+r="$?"
+if [ "$r" = "0" ]; then
+	echo "OK :-)"
+	rm -f /tmp/apt-update.log
+else
+	cat /tmp/apt-update.log
+	rm -f /tmp/apt-update.log
+	echo "!!! Error reported (return code: $r)"
+	exit 1
+fi
+
+
+echo "*** Installing packages (THIS MAY TAKE A WHILE)"
+echo "First, upgrade stuffs ..."
+apt-get update
+apt-get -yq --no-install-suggests --no-install-recommends --force-yes dist-upgrade
+apt-get -yq --force-yes install multiarch-support
+dpkg --add-architecture i386
+dpkg --print-foreign-architectures
+apt-get update
+echo "Now trying to install more packages ..."
+CMD="apt-get -yq --force-yes install tar bzip2 make wget git gawk sed coreutils file libc-bin fakeroot dpkg curl zip scons wine p7zip multiarch-support"
+echo $CMD
+$CMD &> /tmp/apt-install.log < /dev/null
+r="$?"
+if [ "$r" = "0" ]; then
+	echo "OK :-)"
+	rm -f /tmp/apt-install.log
+else
+        cat /tmp/apt-install.log
+        rm -f /tmp/apt-install.log
+        echo "!!! Error reported (return code: $r)"
+        exit 1
+fi
+
+
+echo "*** Installing NSIS for creating Windows installer later"
+cd /tmp || exit 1
+wget -O nsis-2.51.tar.bz2 "https://github.com/lgblgblgb/xemu/blob/gh-pages/files/nsis-2.51.tar.bz2?raw=true" || exit 1
+ls -l nsis-2.51.tar.bz2
+cd /
+tar xfjp tmp/nsis-2.51.tar.bz2 || exit 1
+rm -f tmp/nsis-2.51.tar.bz2
+ls -l /usr/local/nsis/nsis-2.51/
+
+echo "*** Installing WINE related stuffs"
+cd /srv || exit 1
+wget -O mingw-win.7z "https://github.com/lgblgblgb/xemu/blob/gh-pages/files/mingw-win.7z?raw=true" || exit 1
+ls -l mingw-win.7z
+mkdir -p .wine/drive_c || exit 1
+cd .wine/drive_c || exit 1
+p7zip -d ../../mingw-win.7z > /tmp/mingw-repo.log || exit 1
+cd ../.. || exit 1
+rm -f mingw-win.7z
+ln -s /srv/.wine /root/.wine || exit 1
+ls -lad /srv/.wine /root/.wine
+pwd
+
+#echo "trying execute of MinGW gcc.exe to build wine configuration ..."
+#wine .wine/drive_c/MinGW/bin/gcc.exe --version
+
+ls -la .wine/
+
+echo "*** Creating build user"
+CMD="adduser --home /srv --shell /bin/bash --no-create-home --disabled-password --disabled-login --gecos Builder lgb"
+echo $CMD
+$CMD || exit 1
+id -a lgb
+
+echo "*** Calling builder"
+CMD="chown -R lgb:lgb /srv"
+echo $CMD
+$CMD || exit 1
+CMD="su - -c /srv/git/resource/travis/build.linux lgb"
+echo $CMD
+echo
+echo
+$CMD || exit 1
+
+exit 0
