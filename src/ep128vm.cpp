@@ -31,6 +31,8 @@
 #include "videorec.hpp"
 #include "ide.hpp"
 
+#include "lgb/sdext.hpp"
+
 #include <vector>
 #include <ctime>
 
@@ -1517,6 +1519,7 @@ namespace Ep128 {
       for (uint32_t i = 0x003FF200U; i <= 0x003FF2FFU; i++)
         writeMemory(i, 0xFF, false);
     }
+    sdext_init();  // LGB
   }
 
   void Ep128VM::setCPUFrequency(size_t freq_)

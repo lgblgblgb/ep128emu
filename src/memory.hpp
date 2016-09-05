@@ -22,6 +22,7 @@
 
 #include "ep128emu.hpp"
 #include "bplist.hpp"
+#include "lgb/sdext.hpp"
 
 namespace Ep128 {
 
@@ -86,7 +87,8 @@ namespace Ep128 {
   inline uint8_t Memory::read(uint16_t addr)
   {
     uint8_t page = uint8_t(addr >> 14);
-    uint8_t value = pageAddressTableR[page][addr];
+    uint8_t value = (pageTable[page] == 7 && sdext_cp3m_usability != SDEXT_PHYSADDR_CART_P3_SELMASK_OFF) ? sdext_read_cart_p3(addr & 0x3FFF) : pageAddressTableR[page][addr]; /* LGB */
+    // uint8_t value = pageAddressTableR[page][addr];
     if (haveBreakPoints)
       checkReadBreakPoint(addr, page, value);
     return value;
@@ -95,7 +97,8 @@ namespace Ep128 {
   inline uint8_t Memory::readOpcode(uint16_t addr)
   {
     uint8_t page = uint8_t(addr >> 14);
-    uint8_t value = pageAddressTableR[page][addr];
+    uint8_t value = (pageTable[page] == 7 && sdext_cp3m_usability != SDEXT_PHYSADDR_CART_P3_SELMASK_OFF) ? sdext_read_cart_p3(addr & 0x3FFF) : pageAddressTableR[page][addr]; /* LGB */
+    //uint8_t value = pageAddressTableR[page][addr];
     if (haveBreakPoints)
       checkExecuteBreakPoint(addr, page, value);
     return value;
@@ -103,11 +106,15 @@ namespace Ep128 {
 
   inline uint8_t Memory::readNoDebug(uint16_t addr) const
   {
-    return pageAddressTableR[uint8_t(addr >> 14)][addr];
+    uint8_t page = uint8_t(addr >> 14);
+    return ((pageTable[page] == 7 && sdext_cp3m_usability != SDEXT_PHYSADDR_CART_P3_SELMASK_OFF) ? sdext_read_cart_p3(addr & 0x3FFF) : pageAddressTableR[page][addr]); /* LGB */
+    //return pageAddressTableR[page][addr];
   }
 
   inline uint8_t Memory::readRaw(uint32_t addr) const
   {
+    
+    if ((addr & 0x3FC000) == sdext_cp3m_usability) return sdext_read_cart_p3(addr & 0x3FFF); /* LGB */
     uint8_t segment, value;
 
     segment = uint8_t(addr >> 14);
@@ -121,6 +128,7 @@ namespace Ep128 {
   inline void Memory::write(uint16_t addr, uint8_t value)
   {
     uint8_t page = uint8_t(addr >> 14);
+    if (pageTable[page] == 7 && sdext_cp3m_usability != SDEXT_PHYSADDR_CART_P3_SELMASK_OFF) return sdext_write_cart_p3(addr & 0x3FFF, value); /* LGB */
     if (haveBreakPoints)
       checkWriteBreakPoint(addr, page, value);
     pageAddressTableW[page][addr] = value;
@@ -128,6 +136,7 @@ namespace Ep128 {
 
   inline void Memory::writeRaw(uint32_t addr, uint8_t value)
   {
+    if ((addr & 0x3FC000) == sdext_cp3m_usability) return sdext_write_cart_p3(addr & 0x3FFF, value); /* LGB */
     uint8_t segment = uint8_t(addr >> 14);
     if (!segmentROMTable[segment])
       segmentTable[segment][addr & 0x3FFF] = value;

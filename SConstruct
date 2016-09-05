@@ -385,6 +385,7 @@ ep128LibEnvironment.Append(CPPPATH = ['./z80'])
 ep128Lib = ep128LibEnvironment.StaticLibrary('ep128', Split('''
     src/dave.cpp
     src/ep128vm.cpp
+    lgb/sdext.c
     src/ioports.cpp
     src/memory.cpp
     src/nick.cpp
