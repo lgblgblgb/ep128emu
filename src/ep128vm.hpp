@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -127,7 +127,8 @@ namespace Ep128 {
     Dave_     dave;
     Nick_     nick;
     uint8_t   pageTable[4];
-    int64_t   nickCyclesRemaining;      // in 2^-32 NICK cycle units
+    uint32_t  nickCyclesRemainingL;     // in 2^-32 NICK cycle units
+    int32_t   nickCyclesRemainingH;
     int64_t   cpuCyclesPerNickCycle;    // in 2^-32 Z80 cycle units
     int64_t   cpuCyclesRemaining;       // in 2^-32 Z80 cycle units
     int64_t   daveCyclesPerNickCycle;   // in 2^-32 DAVE cycle units
@@ -152,8 +153,8 @@ namespace Ep128 {
     //   uint64_t   deltaTime   (in NICK cycles, stored as MSB first dynamic
     //                          length (1 to 8 bytes) value)
     //   uint8_t    eventType   (currently allowed values are 0 for end of
-    //                          demo (zero data bytes), 1 for key press, and
-    //                          2 for key release)
+    //                          demo (zero data bytes), 1 for key press,
+    //                          2 for key release, and 3 for mouse event)
     //   uint8_t    dataLength  number of event data bytes
     //   ...        eventData   (dataLength bytes)
     // the event data for event types 1 and 2 is the key code with a length of
@@ -202,6 +203,14 @@ namespace Ep128 {
     int       videoMemoryLatency_M1;    //      -"-
     int       videoMemoryLatency_IO;    //      -"-
     IDEInterface  *ideInterface;
+    bool      mouseEmulationEnabled;    // cleared on reset, set on RTS toggle
+    uint8_t   prvB7PortState;
+    uint32_t  mouseTimer;               // NICK slots, counts down from 1500 us
+    uint64_t  mouseData;                // data buffer (b60..b63 = next nibble)
+    int8_t    mouseDeltaX;
+    int8_t    mouseDeltaY;
+    uint8_t   mouseButtonState;
+    uint8_t   mouseWheelDelta;          // b0..b3: vertical, b4..b7: horizontal
     // ----------------
     void updateTimingParameters();
     void setMemoryWaitTiming();
@@ -209,6 +218,8 @@ namespace Ep128 {
     EP128EMU_REGPARM1 void videoMemoryWait();
     EP128EMU_REGPARM1 void videoMemoryWait_M1();
     EP128EMU_REGPARM1 void videoMemoryWait_IO();
+    // called from the Z80 emulation to synchronize NICK and DAVE with the CPU
+    EP128EMU_REGPARM1 void runDevices();
     static uint8_t davePortReadCallback(void *userData, uint16_t addr);
     static void davePortWriteCallback(void *userData,
                                       uint16_t addr, uint8_t value);
@@ -233,6 +244,9 @@ namespace Ep128 {
     static uint8_t ideDriveIOReadCallback(void *userData, uint16_t addr);
     static void ideDriveIOWriteCallback(void *userData,
                                         uint16_t addr, uint8_t value);
+    static void mouseRTSWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value);
+    static void mouseTimerCallback(void *userData);
     static void tapeCallback(void *userData);
     static void demoPlayCallback(void *userData);
     static void demoRecordCallback(void *userData);
@@ -291,6 +305,25 @@ namespace Ep128 {
      * Set state of key 'keyCode' (0 to 127; see dave.hpp).
      */
     virtual void setKeyboardState(int keyCode, bool isPressed);
+    /*!
+     * Send mouse event to the emulated machine. 'dX' and 'dY' are the
+     * horizontal and vertical motion of the pointer relative to the position
+     * at the time of the previous call, positive values move to the left and
+     * up, respectively.
+     * Each bit of 'buttonState' corresponds to the current state of a mouse
+     * button (1 = pressed):
+     *   b0 = left button
+     *   b1 = right button
+     *   b2 = middle button
+     *   b3..b7 = buttons 4 to 8
+     * 'mouseWheelEvents' can be the sum of any of the following:
+     *   1: mouse wheel up
+     *   2: mouse wheel down
+     *   4: mouse wheel left
+     *   8: mouse wheel right
+     */
+    virtual void setMouseState(int8_t dX, int8_t dY,
+                               uint8_t buttonState, uint8_t mouseWheelEvents);
     /*!
      * Returns status information about the emulated machine (see also
      * struct VMStatus above, and the comments for functions that return

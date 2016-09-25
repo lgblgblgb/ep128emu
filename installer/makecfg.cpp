@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #  include <sys/types.h>
 #  include <sys/stat.h>
 #else
+#  include <windows.h>
 #  include <direct.h>
 #endif
 
@@ -1302,6 +1303,43 @@ static bool unpackROMFiles(const std::string& romDir)
 
 // ----------------------------------------------------------------------------
 
+static void saveConfigurationFile(Ep128Emu::ConfigurationDB& config,
+                                  const std::string& dirName,
+                                  const char *fileName,
+                                  Ep128EmuConfigInstallerGUI& gui)
+{
+  try {
+    std::string fullName = dirName;
+    fullName += fileName;
+#ifdef WIN32
+    try
+#endif
+    {
+      config.saveState(fullName.c_str(), false);
+    }
+#ifdef WIN32
+    catch (Ep128Emu::Exception& e) {
+      if (std::strncmp(e.what(), "error opening ", 14) == 0) {
+        // hack to work around errors due to lack of write access to
+        // Program Files if makecfg is run as a normal user; if the
+        // file already exists, then the error is ignored
+        std::FILE *f = std::fopen(fullName.c_str(), "rb");
+        if (!f)
+          throw;
+        else
+          std::fclose(f);
+      }
+      else {
+        throw;
+      }
+    }
+#endif
+  }
+  catch (std::exception& e) {
+    gui.errorMessage(e.what());
+  }
+}
+
 int main(int argc, char **argv)
 {
   if ((sizeof(machineConfigs) / sizeof(uint64_t))
@@ -1340,6 +1378,26 @@ int main(int argc, char **argv)
     std::string tmp = "";
 #ifndef WIN32
     tmp = Ep128Emu::getEp128EmuHomeDirectory();
+#else
+    {
+      // try to get installation directory from registry
+      char    installDir[256];
+      HKEY    regKey = 0;
+      DWORD   regType = 0;
+      DWORD   bufSize = 256;
+      if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                       "Software\\ep128emu2\\InstallDirectory", 0,
+                       KEY_QUERY_VALUE | KEY_WOW64_32KEY, &regKey)
+          == ERROR_SUCCESS) {
+        if (RegQueryValueEx(regKey, "", (LPDWORD) 0, &regType,
+                            (LPBYTE) installDir, &bufSize)
+            == ERROR_SUCCESS && regType == REG_SZ && bufSize < 256) {
+          installDir[bufSize] = '\0';
+          tmp = installDir;
+        }
+        RegCloseKey(regKey);
+      }
+    }
 #endif
 #if defined(__linux) || defined(__linux__)
     // use FLTK file chooser to work around bugs in the new 1.3.3 GTK chooser
@@ -1549,14 +1607,8 @@ int main(int argc, char **argv)
          i++) {
       config = new Ep128Emu::ConfigurationDB();
       mCfg = new Ep128EmuMachineConfiguration(*config, i, romDirectory);
-      try {
-        std::string fileName = configDirectory;
-        fileName += machineConfigFileNames[i];
-        config->saveState(fileName.c_str(), false);
-      }
-      catch (std::exception& e) {
-        gui->errorMessage(e.what());
-      }
+      saveConfigurationFile(*config,
+                            configDirectory, machineConfigFileNames[i], *gui);
       delete config;
       delete mCfg;
       config = (Ep128Emu::ConfigurationDB *) 0;
@@ -1565,15 +1617,10 @@ int main(int argc, char **argv)
     for (int i = 0; i < 8; i++) {
       if (keyboardConfigFileNames[i] != (char *) 0) {
         config = new Ep128Emu::ConfigurationDB();
-        try {
-          setKeyboardConfiguration(*config, i);
-          std::string fileName = configDirectory;
-          fileName += keyboardConfigFileNames[i];
-          config->saveState(fileName.c_str(), false);
-        }
-        catch (std::exception& e) {
-          gui->errorMessage(e.what());
-        }
+        setKeyboardConfiguration(*config, i);
+        saveConfigurationFile(*config,
+                              configDirectory, keyboardConfigFileNames[i],
+                              *gui);
         delete config;
         config = (Ep128Emu::ConfigurationDB *) 0;
       }

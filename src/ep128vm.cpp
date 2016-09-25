@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -274,13 +274,19 @@ namespace Ep128 {
 
   EP128EMU_REGPARM3 void Ep128VM::Z80_::doOut(uint16_t addr, uint8_t value)
   {
-    vm.cpuCyclesRemaining -= (int64_t(4) << 32);
+    vm.cpuCyclesRemaining -= (int64_t(3) << 32);
+    if (vm.cpuCyclesRemaining < -(vm.cpuCyclesPerNickCycle))
+      vm.runDevices();
+    vm.cpuCyclesRemaining -= (int64_t(1) << 32);
     vm.ioPorts.write(addr, value);
   }
 
   EP128EMU_REGPARM2 uint8_t Ep128VM::Z80_::doIn(uint16_t addr)
   {
-    vm.cpuCyclesRemaining -= (int64_t(4) << 32);
+    vm.cpuCyclesRemaining -= (int64_t(3) << 32);
+    if (vm.cpuCyclesRemaining < -(vm.cpuCyclesPerNickCycle))
+      vm.runDevices();
+    vm.cpuCyclesRemaining -= (int64_t(1) << 32);
     return vm.ioPorts.read(addr);
   }
 
@@ -769,6 +775,29 @@ namespace Ep128 {
     }
   }
 
+  EP128EMU_REGPARM1 void Ep128VM::runDevices()
+  {
+    do {
+      nick.runOneSlot();
+      nickCyclesRemainingH--;
+      Ep128VMCallback   *p = firstCallback;
+      while (p) {
+        Ep128VMCallback *nxt = p->nxt;
+        p->func(p->userData);
+        p = nxt;
+      }
+      daveCyclesRemaining += daveCyclesPerNickCycle;
+      if (daveCyclesRemaining >= 0L) {
+        do {
+          daveCyclesRemaining -= (int64_t(1) << 32);
+          soundOutputSignal = dave.runOneCycle();
+          sendAudioOutput(soundOutputSignal + externalDACOutput);
+        } while (EP128EMU_UNLIKELY(daveCyclesRemaining >= 0L));
+      }
+      cpuCyclesRemaining += cpuCyclesPerNickCycle;
+    } while (cpuCyclesRemaining < -cpuCyclesPerNickCycle);
+  }
+
   uint8_t Ep128VM::davePortReadCallback(void *userData, uint16_t addr)
   {
     return (reinterpret_cast<Ep128VM *>(userData)->dave.readPort(addr));
@@ -1038,6 +1067,62 @@ namespace Ep128 {
       vm.ideInterface->writePort(addr, value);
   }
 
+  void Ep128VM::mouseRTSWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if ((value ^ vm.prvB7PortState) & 0x02) {
+      if (!vm.mouseTimer) {
+        if (EP128EMU_UNLIKELY(!vm.mouseEmulationEnabled)) {
+          // mouse data is requested for the first time since reset()
+          vm.mouseEmulationEnabled = true;
+          vm.mouseDeltaX = 0;
+          vm.mouseDeltaY = 0;
+          vm.mouseButtonState = 0x00;
+          vm.mouseWheelDelta = 0x00;
+        }
+        vm.setCallback(&mouseTimerCallback, userData, true);
+        uint8_t   dx = uint8_t(vm.mouseDeltaX) & 0xFF;
+        uint8_t   dy = uint8_t(vm.mouseDeltaY) & 0xFF;
+        uint32_t  mouseData_ =
+            uint32_t(vm.mouseWheelDelta)
+            | (uint32_t(((vm.mouseButtonState >> 2) & 0x07) | 0x10) << 8)
+            | (uint32_t(dx) << 24) | (uint32_t(dy) << 16);
+        // ExCnt = 4
+        // PS/2 mouse ID = 4
+        // hardware version = 0x14
+        // firmware version = 0x19
+        // EnterMice ID = 0x5D
+        vm.mouseData = (uint64_t(mouseData_) << 32) | 0x4414195DULL;
+        vm.mouseDeltaX = 0;
+        vm.mouseDeltaY = 0;
+        vm.mouseWheelDelta = 0x00;
+      }
+      // send next nibble to DAVE (port 0xB6)
+      uint8_t daveInput = uint8_t(vm.mouseData >> 60) & 0x0F;
+      vm.mouseData = vm.mouseData << 4;
+      daveInput = daveInput | ((vm.mouseButtonState & 0x03) << 4);
+      vm.dave.setMouseInput(daveInput);
+      // 1500 us
+      vm.mouseTimer = (uint32_t(vm.nickFrequency) * 1573U + 0x00080000U) >> 20;
+    }
+    vm.prvB7PortState = value;
+    vm.davePortWriteCallback(userData, addr, value);
+  }
+
+  void Ep128VM::mouseTimerCallback(void *userData)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if (EP128EMU_EXPECT(vm.mouseTimer > 1U)) {
+      vm.mouseTimer--;
+      return;
+    }
+    vm.mouseTimer = 0U;
+    vm.mouseData = 0ULL;
+    vm.setCallback(&mouseTimerCallback, userData, false);
+    vm.dave.setMouseInput(0xFF);
+  }
+
   void Ep128VM::tapeCallback(void *userData)
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
@@ -1059,22 +1144,28 @@ namespace Ep128 {
         vm.stopDemoPlayback();
       }
       try {
-        uint8_t evtType = vm.demoBuffer.readByte();
-        uint8_t evtBytes = vm.demoBuffer.readByte();
-        uint8_t evtData = 0;
-        while (evtBytes) {
-          evtData = vm.demoBuffer.readByte();
-          evtBytes--;
-        }
+        uint8_t   evtType = vm.demoBuffer.readByte();
+        uint8_t   evtBytes = vm.demoBuffer.readByte();
+        uint32_t  evtData_ = 0U;
+        unsigned char *evtData = reinterpret_cast< unsigned char * >(&evtData_);
+        for (uint8_t i = 0; i < evtBytes; i++)
+          evtData[i & 3] = vm.demoBuffer.readByte();
         switch (evtType) {
         case 0x00:
           vm.stopDemoPlayback();
           break;
         case 0x01:
-          vm.dave.setKeyboardState(evtData, 1);
+          vm.dave.setKeyboardState(evtData[0], 1);
           break;
         case 0x02:
-          vm.dave.setKeyboardState(evtData, 0);
+          vm.dave.setKeyboardState(evtData[0], 0);
+          break;
+        case 0x03:
+          // FIXME: ugly hack to enable mouse input only from the demo file
+          vm.isPlayingDemo = false;
+          vm.setMouseState(int8_t(evtData[0]), int8_t(evtData[1]),
+                           evtData[2], evtData[3]);
+          vm.isPlayingDemo = true;
           break;
         }
         vm.demoTimeCnt = vm.demoBuffer.readUIntVLen();
@@ -1305,7 +1396,8 @@ namespace Ep128 {
       ioPorts(*this),
       dave(*this),
       nick(*this),
-      nickCyclesRemaining(0L),
+      nickCyclesRemainingL(0U),
+      nickCyclesRemainingH(0),
       cpuCyclesPerNickCycle(0L),
       cpuCyclesRemaining(-1L),
       daveCyclesPerNickCycle(0L),
@@ -1347,7 +1439,15 @@ namespace Ep128 {
       videoMemoryLatency(359455),
       videoMemoryLatency_M1(355589),
       videoMemoryLatency_IO(362928),
-      ideInterface((IDEInterface *) 0)
+      ideInterface((IDEInterface *) 0),
+      mouseEmulationEnabled(false),
+      prvB7PortState(0x00),
+      mouseTimer(0U),
+      mouseData(0U),
+      mouseDeltaX(0),
+      mouseDeltaY(0),
+      mouseButtonState(0x00),
+      mouseWheelDelta(0x00)
   {
     for (size_t i = 0; i < (sizeof(callbacks) / sizeof(Ep128VMCallback)); i++) {
       callbacks[i].func = (void (*)(void *)) 0;
@@ -1364,6 +1464,7 @@ namespace Ep128 {
     ioPorts.setReadCallback(0xA0, 0xBF, &davePortReadCallback, this, 0xA0);
     ioPorts.setWriteCallback(0xA0, 0xBF, &davePortWriteCallback, this, 0xA0);
     ioPorts.setDebugReadCallback(0xB0, 0xB6, &davePortReadCallback, this, 0xA0);
+    ioPorts.setWriteCallback(0xB7, 0xB7, &mouseRTSWriteCallback, this, 0xA0);
     for (uint16_t i = 0x80; i <= 0x8F; i++) {
       ioPorts.setReadCallback(i, i, &nickPortReadCallback, this, (i & 0x8C));
       ioPorts.setWriteCallback(i, i, &nickPortWriteCallback, this, (i & 0x8C));
@@ -1456,13 +1557,16 @@ namespace Ep128 {
         dave.setTapeInput(0, 0);
       setCallback(&tapeCallback, this, tapeCallbackFlag);
     }
-    nickCyclesRemaining +=
-        ((int64_t(microseconds) << 26) * int64_t(nickFrequency)
-         / int64_t(15625));     // 10^6 / 2^6
-    if (EP128EMU_UNLIKELY(nickCyclesRemaining < (int64_t(1) << 32)))
+    {
+      int64_t tmp =
+          int64_t(nickCyclesRemainingL) | (int64_t(nickCyclesRemainingH) << 32);
+      tmp += ((int64_t(microseconds) << 26) * int64_t(nickFrequency)
+              / int64_t(15625));        // 10^6 / 2^6
+      nickCyclesRemainingL = uint32_t(tmp & 0xFFFFFFFFLL);
+      nickCyclesRemainingH = int32_t(uint32_t(uint64_t(tmp) >> 32));
+    }
+    if (EP128EMU_UNLIKELY(nickCyclesRemainingH < 1))
       return;
-    int     cycleCnt = int(nickCyclesRemaining >> 32);
-    nickCyclesRemaining -= (int64_t(cycleCnt) << 32);
     do {
       Ep128VMCallback   *p = firstCallback;
       while (p) {
@@ -1482,7 +1586,7 @@ namespace Ep128 {
       while (cpuCyclesRemaining >= 0L)
         z80.executeInstruction();
       nick.runOneSlot();
-    } while (EP128EMU_EXPECT(--cycleCnt));
+    } while (EP128EMU_EXPECT(--nickCyclesRemainingH > 0));
   }
 
   void Ep128VM::reset(bool isColdReset)
@@ -1517,6 +1621,15 @@ namespace Ep128 {
       for (uint32_t i = 0x003FF200U; i <= 0x003FF2FFU; i++)
         writeMemory(i, 0xFF, false);
     }
+    dave.setMouseInput(0xFF);
+    mouseEmulationEnabled = false;
+    prvB7PortState = 0x00;
+    mouseTimer = 0U;
+    mouseData = 0ULL;
+    mouseDeltaX = 0;
+    mouseDeltaY = 0;
+    mouseButtonState = 0x00;
+    mouseWheelDelta = 0x00;
   }
 
   void Ep128VM::setCPUFrequency(size_t freq_)
@@ -1591,6 +1704,42 @@ namespace Ep128 {
       demoBuffer.writeByte(isPressed ? 0x01 : 0x02);
       demoBuffer.writeByte(0x01);
       demoBuffer.writeByte(uint8_t(keyCode & 0x7F));
+    }
+  }
+
+  void Ep128VM::setMouseState(int8_t dX, int8_t dY,
+                              uint8_t buttonState, uint8_t mouseWheelEvents)
+  {
+    if (EP128EMU_UNLIKELY(isRecordingDemo | isPlayingDemo)) {
+      if (isPlayingDemo)
+        return;
+      if (EP128EMU_UNLIKELY(haveTape() && getIsTapeMotorOn() &&
+                            getTapeButtonState() != 0)) {
+        stopDemoRecording(false);
+      }
+      else if (mouseEmulationEnabled) {
+        demoBuffer.writeUIntVLen(demoTimeCnt);
+        demoTimeCnt = 0U;
+        demoBuffer.writeByte(0x03);     // event type (mouse)
+        demoBuffer.writeByte(0x04);     // number of data bytes
+        demoBuffer.writeByte(uint8_t(dX));
+        demoBuffer.writeByte(uint8_t(dY));
+        demoBuffer.writeByte(buttonState);
+        demoBuffer.writeByte(mouseWheelEvents);
+      }
+    }
+    int     dX_ = int(dX) + int(mouseDeltaX);
+    int     dY_ = int(dY) + int(mouseDeltaY);
+    mouseDeltaX = int8_t(dX_ > -128 ? (dX_ < 127 ? dX_ : 127) : -128);
+    mouseDeltaY = int8_t(dY_ > -128 ? (dY_ < 127 ? dY_ : 127) : -128);
+    mouseButtonState = buttonState;
+    if (mouseWheelEvents) {
+      if (mouseWheelEvents & 0x01)      // up
+        mouseWheelDelta = (mouseWheelDelta + 1) & 0xFF;
+      if (mouseWheelEvents & 0x02)      // down
+        mouseWheelDelta = (mouseWheelDelta - 1) & 0xFF;
+      if (((mouseWheelDelta + 0x10) & 0xFF) >= 0x20)    // overflow
+        mouseWheelDelta = ((mouseWheelDelta & 0x80) ? 0xF8 : 0x07);
     }
   }
 

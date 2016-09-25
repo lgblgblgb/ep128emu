@@ -1,5 +1,5 @@
-ep128emu 2.0.9.2 beta
-=====================
+ep128emu 2.0.10 beta
+====================
 
 ep128emu is an open source, portable emulator of the Enterprise 128,
 ZX Spectrum 48/128, and Amstrad CPC 464/664/6128 computers, written in
@@ -35,8 +35,8 @@ General
     per second, and 48000 Hz stereo 16-bit PCM audio
   * saving screenshots as 768x576 8-bit RLE compressed BMP files
   * saving and loading snapshots of the state of the emulated machine
-  * demo recording (snapshot combined with stream of keyboard events
-    which can be played back with accurate timing)
+  * demo recording (snapshot combined with stream of keyboard and mouse
+    events which can be played back with accurate timing)
   * GUI tape editor utility for copying Enterprise files from/to
     ep128emu tape images
   * GUI debugger with support for breakpoints/watchpoints, viewing the
@@ -92,6 +92,8 @@ Enterprise emulation
   * Spectrum emulator card emulation
   * real time clock (at ports 7E, 7F)
   * external 4-channel 8-bit DAC at ports F0 to F3
+  * mouse emulation, an EnterMice device with up to 5 buttons and mouse
+    wheel is emulated in native mode on column K of the keyboard matrix
 
 Spectrum emulation
 ------------------
@@ -161,13 +163,11 @@ Linux
 -----
 
 On Linux and other POSIX platforms, the emulator is installed from the
-source code, available at the SourceForge download page
-  http://sourceforge.net/project/showfiles.php?group_id=128766
-or the most recent state of the code can be downloaded from CVS with the
+source code, available at the GitHub download page
+  https://github.com/istvan-v/ep128emu/releases/
+or the most recent state of the code can be downloaded from Git with the
 following command:
-  cvs -z3 -d                                                        \
-  :pserver:anonymous@ep128emu.cvs.sourceforge.net:/cvsroot/ep128emu \
-  checkout -P ep128emu2
+  git clone https://github.com/istvan-v/ep128emu.git
 In addition to the standard development tools (a recent version of the
 GNU C/C++ compiler, binutils, etc.), you need the following packages:
 
@@ -215,9 +215,11 @@ It is possible to reinstall configuration files later by running the
 Windows
 -------
 
-A binary package with an installer is available at the SourceForge
-download page:
-  http://sourceforge.net/project/showfiles.php?group_id=128766
+A binary package with an installer is available at the GitHub download
+page:
+  https://github.com/istvan-v/ep128emu/releases/
+Older (pre-2.0.10) versions can be downloaded from SourceForge:
+  https://sourceforge.net/projects/ep128emu/files/
 To install, just run the executable, and follow the instructions.
 The installer can automatically download the ROM images needed for
 running the emulator, but these can also be installed manually by
@@ -457,7 +459,7 @@ Display / Cycle display mode (F9)
     window with no menu bar
     window with menu bar (this is the default)
     fullscreen with menu bar
-    fullscreen with no menu bar
+    fullscreen with no menu bar (recommended for mouse emulation)
 
 Sound / Increase volume
 
@@ -723,7 +725,9 @@ scripts:
   AND(...)    OR(...)    XOR(...)    SHL(a, b)    SHR(a, b)
 
     These simple helper functions implement bitwise operations that are
-    not available in the Lua language by default.
+    not available in versions 5.2 and older of the Lua language by
+    default. If the emulator is built with Lua 5.3 or newer, then using
+    the operators &, |, ~, <<, and >> is recommended.
     AND, OR, and XOR can take any number of integer arguments, and
     return the bitwise AND, OR, and XOR of the values, respectively. In
     the case of zero arguments, OR and XOR return zero, while AND
@@ -806,16 +810,19 @@ scripts:
     space; the most significant 8 bits of 'addr' select the segment
     number.
 
+  writeROM(addr, value)
+
+    This function is similar to writeMemoryRaw(), but it can write to
+    any valid segment, even if it is ROM.
+
   readWord(addr)
   writeWord(addr, value)
   readWordRaw(addr)
   writeWordRaw(addr, value)
-  writeROM(addr, value)
   writeWordROM(addr, value)
 
     These are similar to the memory read/write functions above, but read
     and write 16-bit LSB-first words instead of single bytes.
-    The 'writeROM' functions can write to both RAM and ROM segments.
 
   readIOPort(addr)
 

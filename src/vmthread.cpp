@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2008 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -343,6 +343,14 @@ namespace Ep128Emu {
                      keyCode_, isPressed_));
   }
 
+  void VMThread::setMouseState(int8_t dX, int8_t dY,
+                               uint8_t buttonState, uint8_t mouseWheelEvents)
+  {
+    queueMessage(allocateMessage<Message_MouseEvent, uint32_t>(
+                     Message_MouseEvent::packMouseEvent(dX, dY, buttonState,
+                                                        mouseWheelEvents)));
+  }
+
   void VMThread::resetKeyboard()
   {
     queueMessage(allocateMessage<Message_ResetKeyboard>());
@@ -476,6 +484,20 @@ namespace Ep128Emu {
     }
   }
 
+  VMThread::Message_MouseEvent::~Message_MouseEvent()
+  {
+  }
+
+  void VMThread::Message_MouseEvent::process()
+  {
+    int8_t  dX = 0;
+    int8_t  dY = 0;
+    uint8_t buttonState = 0x00;
+    uint8_t mouseWheelEvents = 0x00;
+    unpackMouseEvent(dX, dY, buttonState, mouseWheelEvents);
+    vmThread.vm.setMouseState(dX, dY, buttonState, mouseWheelEvents);
+  }
+
   VMThread::Message_ResetKeyboard::~Message_ResetKeyboard()
   {
   }
@@ -488,6 +510,7 @@ namespace Ep128Emu {
         vmThread.vm.setKeyboardState(i, false);
       }
     }
+    vmThread.vm.setMouseState(0, 0, 0x00, 0x00);
   }
 
   VMThread::Message_TapePlay::~Message_TapePlay()

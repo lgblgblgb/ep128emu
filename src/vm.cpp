@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -339,6 +339,15 @@ namespace Ep128Emu {
   {
     (void) keyCode;
     (void) isPressed;
+  }
+
+  void VirtualMachine::setMouseState(int8_t dX, int8_t dY, uint8_t buttonState,
+                                     uint8_t mouseWheelEvents)
+  {
+    (void) dX;
+    (void) dY;
+    (void) buttonState;
+    (void) mouseWheelEvents;
   }
 
   void VirtualMachine::getVMStatus(VMStatus& vmStatus_)
@@ -846,9 +855,7 @@ namespace Ep128Emu {
     f = (std::FILE *) 0;
     try {
       std::string fullName;
-      bool        haveFileName = false;
       if (fileName_.length() > 0) {
-        haveFileName = true;
         // convert file name to lower case, replace invalid characters with '_'
         std::string baseName(fileName_);
         stringToLowerCase(baseName);
@@ -865,14 +872,19 @@ namespace Ep128Emu {
           fileNameCallback(fileNameCallbackUserData, fullName);
         if (fullName.length() == 0)
           return -2;                    // error: invalid file name
+#ifdef WIN32
         fileName_ = fullName;
+#endif
       }
       // attempt to stat() file
 #ifndef WIN32
       struct stat   st;
       std::memset(&st, 0, sizeof(struct stat));
       int   err = stat(fullName.c_str(), &st);
-      if (err != 0 && haveFileName) {
+      if (fileName_.empty()) {
+        fileName_ = fullName;
+      }
+      else if (err != 0) {
         // not found, try case insensitive file search
         std::string tmpName(fullName);
         tmpName[0] = tmpName.c_str()[0];    // unshare string

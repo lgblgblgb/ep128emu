@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,39 +21,21 @@
 #include "dave.hpp"
 #include <cmath>
 
-// calculate parity of 'n'
-// returns 0 if parity is even, and 1 if parity is odd
+// Generate polynomial counter of log2(m0) + 1 bits length, and store
+// (m0 * 2 - 1) samples at 'tabptr' in reverse order.
+// log2(m1) is the second bit to be used in the XOR operation when
+// calculating the next bit of output.
 
-static int parity_32(uint32_t n)
+static void calculate_polycnt(uint8_t *tabptr, uint32_t m0, uint32_t m1)
 {
-    n = n ^ (n >> 1);
-    n = n ^ (n >> 2);
-    n = n ^ (n >> 4);
-    n = n ^ (n >> 8);
-    n = n ^ (n >> 16);
-
-    return int(n & 1);
-}
-
-// generate polynomial counter of 'nbits' length, and store
-// ((2 ^ nbits) - 1) samples at 'tabptr'
-// the table will be played back in reverse order, so the 'poly' constant
-// should be set to a value that reproduces the output of a tone channel
-// sampling the polynomial counter of 'nbits' length on a real DAVE chip,
-// with a frequency code of (((2 ^ nbits) - 3) + (k * ((2 ^ nbits) - 1))),
-// where k is any integer
-
-static void calculate_polycnt(uint8_t *tabptr, int nbits, int poly)
-{
-    int i, j, k;
-
-    j = 0x7FFFFFFF;
-    k = 1;
-    for (i = 0; i < ((1 << nbits) - 1); i++) {
-      k = (k ^ (int) parity_32((uint32_t) (j & poly))) & 1;
-      j = (j << 1) | k;
-      tabptr[i] = (uint8_t) k;
-    }
+  uint32_t  sr = 0xFFFFFFFFU;
+  int       n = int(m0 << 1) - 1;
+  while (--n >= 0) {
+    uint8_t b0 = uint8_t(bool(sr & m0));
+    uint8_t b1 = uint8_t(bool(sr & m1));
+    tabptr[n] = b0;
+    sr = (sr << 1) | uint32_t(b0 ^ b1);
+  }
 }
 
 namespace Ep128 {
@@ -62,71 +44,32 @@ namespace Ep128 {
 
   DaveTables::DaveTables()
   {
-    polycnt4_table = (uint8_t*) 0;
-    polycnt5_table = (uint8_t*) 0;
-    polycnt7_table = (uint8_t*) 0;
-    polycnt9_table = (uint8_t*) 0;
-    polycnt11_table = (uint8_t*) 0;
-    polycnt15_table = (uint8_t*) 0;
-    polycnt17_table = (uint8_t*) 0;
-    try {
-      polycnt4_table = new uint8_t[15];
-      polycnt5_table = new uint8_t[31];
-      polycnt7_table = new uint8_t[127];
-      polycnt9_table = new uint8_t[511];
-      polycnt11_table = new uint8_t[2047];
-      polycnt15_table = new uint8_t[32767];
-      polycnt17_table = new uint8_t[131071];
+    static const uint32_t polycnt_params[14] = {
+      0x00000008U, 0x00000004U,         // 4-bit: poly = 11001
+      0x00000010U, 0x00000004U,         // 5-bit: poly = 101001
+      0x00000040U, 0x00000020U,         // 7-bit: poly = 11000001
+      0x00000100U, 0x00000010U,         // 9-bit: poly = 1000100001
+      0x00000400U, 0x00000100U,         // 11-bit: poly = 101000000001
+      0x00004000U, 0x00002000U,         // 15-bit: poly = 1100000000000001
+      0x00010000U, 0x00002000U          // 17-bit: poly = 100100000000000001
+    };
+    polycnt4_table = new uint8_t[15 + 31 + 127 + 511 + 2047 + 32767 + 131071];
+    polycnt5_table = &(polycnt4_table[15]);
+    polycnt7_table = &(polycnt5_table[31]);
+    polycnt9_table = &(polycnt7_table[127]);
+    polycnt11_table = &(polycnt9_table[511]);
+    polycnt15_table = &(polycnt11_table[2047]);
+    polycnt17_table = &(polycnt15_table[32767]);
+    uint8_t *bufp = polycnt4_table;
+    for (int i = 0; i < 14; i += 2) {
+      calculate_polycnt(bufp, polycnt_params[i], polycnt_params[i + 1]);
+      bufp = bufp + ((polycnt_params[i] << 1) - 1U);
     }
-    catch (...) {
-      if (polycnt4_table)
-        delete[] polycnt4_table;
-      if (polycnt5_table)
-        delete[] polycnt5_table;
-      if (polycnt7_table)
-        delete[] polycnt7_table;
-      if (polycnt9_table)
-        delete[] polycnt9_table;
-      if (polycnt11_table)
-        delete[] polycnt11_table;
-      if (polycnt15_table)
-        delete[] polycnt15_table;
-      if (polycnt17_table)
-        delete[] polycnt17_table;
-      throw;
-    }
-    // 4-bit polynomial counter (poly = 8)
-    calculate_polycnt(polycnt4_table, 4, 8);
-    // 5-bit polynomial counter (poly = 19)
-    calculate_polycnt(polycnt5_table, 5, 19);
-    // 7-bit polynomial counter (poly = 64)
-    calculate_polycnt(polycnt7_table, 7, 64);
-    // 9-bit polynomial counter (poly = 265)
-    calculate_polycnt(polycnt9_table, 9, 265);
-    // 11-bit polynomial counter (poly = 1027)
-    calculate_polycnt(polycnt11_table, 11, 1027);
-    // 15-bit polynomial counter (poly = 16384)
-    calculate_polycnt(polycnt15_table, 15, 16384);
-    // 17-bit polynomial counter (poly = 65541)
-    calculate_polycnt(polycnt17_table, 17, 65541);
   }
 
   DaveTables::~DaveTables()
   {
-    if (polycnt4_table)
-      delete[] polycnt4_table;
-    if (polycnt5_table)
-      delete[] polycnt5_table;
-    if (polycnt7_table)
-      delete[] polycnt7_table;
-    if (polycnt9_table)
-      delete[] polycnt9_table;
-    if (polycnt11_table)
-      delete[] polycnt11_table;
-    if (polycnt15_table)
-      delete[] polycnt15_table;
-    if (polycnt17_table)
-      delete[] polycnt17_table;
+    delete[] polycnt4_table;
   }
 
   // handle timer interrupts
@@ -158,16 +101,23 @@ namespace Ep128 {
     // update polynomial counters
     if (--polycnt4_phase < 0)                   // 4-bit
       polycnt4_phase = 14;
+    polycnt4_state = (int) t.polycnt4_table[polycnt4_phase];
     if (--polycnt5_phase < 0)                   // 5-bit
       polycnt5_phase = 30;
+    polycnt5_state = (int) t.polycnt5_table[polycnt5_phase];
     if (!noise_polycnt_is_7bit) {
       // channel 3 uses the variable length polynomial counter
       if (--polycnt7_phase < 0)                 // 7-bit
         polycnt7_phase = 126;
+      polycnt7_state = (int) t.polycnt7_table[polycnt7_phase];
       // channel 3 polynomial counter: updated on negative edge
       if (*chn3_clk_source < chn3_clk_source_prv) {
         if (--polycntVL_phase < 0)              // variable length
           polycntVL_phase = polycntVL_maxphase;
+        polycntVL_state = (int) polycntVL_table[polycntVL_phase];
+        chn3_state1 = polycntVL_state;          // input signal to channel 3
+        if (!chn3_lp_2)
+          chn3_state2 = polycntVL_state;
       }
       chn3_clk_source_prv = *chn3_clk_source;
     }
@@ -177,16 +127,16 @@ namespace Ep128 {
         // update on negative edge
         if (--polycnt7_phase < 0)               // 7-bit
           polycnt7_phase = 126;
+        polycnt7_state = (int) t.polycnt7_table[polycnt7_phase];
+        chn3_state1 = polycnt7_state;           // input signal to channel 3
+        if (!chn3_lp_2)
+          chn3_state2 = polycnt7_state;
       }
       chn3_clk_source_prv = *chn3_clk_source;
       if (--polycntVL_phase < 0)                // variable length
         polycntVL_phase = polycntVL_maxphase;
+      polycntVL_state = (int) polycntVL_table[polycntVL_phase];
     }
-    // read polynomial counter tables
-    polycnt4_state = (int) t.polycnt4_table[polycnt4_phase];
-    polycnt5_state = (int) t.polycnt5_table[polycnt5_phase];
-    polycnt7_state = (int) t.polycnt7_table[polycnt7_phase];
-    polycntVL_state = (int) polycntVL_table[polycntVL_phase];
 
     // update the phase of all oscillators
     clk_62500_phase--;
@@ -204,7 +154,7 @@ namespace Ep128 {
       if (enable_int_snd)
         triggerIntSnd();
     }
-    if (clk_1_phase < 0) {
+    if (EP128EMU_UNLIKELY(clk_1_phase < 0)) {
       clk_1_phase = clk_1_frq;                          // reload counter
       int_1hz_state = (int_1hz_state & 1) ^ 1;          // invert state
       if (enable_int_1hz)
@@ -212,9 +162,9 @@ namespace Ep128 {
     }
 
     // reload phase counters if necessary
-    if (clk_1000_phase < 0)
+    if (EP128EMU_UNLIKELY(clk_1000_phase < 0))
       clk_1000_phase = clk_1000_frq;
-    if (clk_50_phase < 0)
+    if (EP128EMU_UNLIKELY(clk_50_phase < 0))
       clk_50_phase = clk_50_frq;
 
     // calculate oscillator outputs
@@ -225,8 +175,7 @@ namespace Ep128 {
     }
     // ---- channel 3 ----
     chn3_prv = chn3_state;                      // save previous output
-    chn3_state1 = *chn3_input_polycnt;          // get input signal
-    if (!chn3_lp_2 || (chn2_state < chn2_prv)) {
+    if (chn3_lp_2 && (chn2_state < chn2_prv)) {
       // lowpass filter holds signal until negative edge in channel 2
       chn3_state2 = chn3_state1;
     }
@@ -649,43 +598,48 @@ namespace Ep128 {
     case 0x14:
       {
         // interrupt state
-        uint8_t n = 0;
-        if (int_snd_state)
-          n |= 0x01;
-        if (int_snd_active)
-          n |= 0x02;
-        if (int_1hz_state)
-          n |= 0x04;
-        if (int_1hz_active)
-          n |= 0x08;
-        if (int_1_state)
-          n |= 0x10;
-        if (int_1_active)
-          n |= 0x20;
-        if (int_2_state)
-          n |= 0x40;
-        if (int_2_active)
-          n |= 0x80;
-        return n;
+        return uint8_t((int_snd_state | (int_snd_active << 1))
+                       | ((int_1hz_state | (int_1hz_active << 1)) << 2)
+                       | ((int_1_state | (int_1_active << 1)) << 4)
+                       | ((int_2_state | (int_2_active << 1)) << 6));
       }
       break;
     case 0x15:
       // read currently selected keyboard row
-      return keyboardState[keyboardRow];
+      return (keyboardRow < 10 ? keyboardState[keyboardRow] : 0xFF);
     case 0x16:
       {
-        uint8_t n = 0x01;
+        // tape input
+        uint8_t n =
+            uint8_t(((tape_input_level - 1) & 0x40) | ((tape_input - 1) & 0x80)
+                    | 0x0F);
         if (keyboardRow < 5) {
-          // external joystick 1 (mapped to keyboard row 14)
-          n = uint8_t((unsigned int) keyboardState[14] >> (4 - keyboardRow));
+          if (keyboardRow == 0) {
+            if (mouseInput != 0xFF) {
+              // EnterMice buttons (left and right)
+              n ^= uint8_t((mouseInput >> 3) & 0x06);
+              // EXT1 joystick fire button 1
+              n &= uint8_t(0xFE | (keyboardState[14] >> 4));
+            }
+            else {
+              // EXT1 joystick fire buttons
+              n &= uint8_t(0xF8 | (keyboardState[14] >> 4));
+            }
+          }
+          else {
+            if (mouseInput != 0xFF)     // EnterMice data input on column K
+              n &= uint8_t(0xFD | ((mouseInput << 1) >> (keyboardRow - 1)));
+            // EXT1 joystick (mapped to row 14)
+            n &= uint8_t(0xFE | (keyboardState[14] >> (4 - keyboardRow)));
+          }
         }
         else if (keyboardRow < 10) {
           // external joystick 2 (mapped to keyboard row 15)
-          n = uint8_t((unsigned int) keyboardState[15] >> (9 - keyboardRow));
+          if (keyboardRow == 5)         // fire buttons
+            n &= uint8_t(0xF8 | (keyboardState[15] >> 4));
+          else
+            n &= uint8_t(0xFE | (keyboardState[15] >> (9 - keyboardRow)));
         }
-        // tape input
-        n = uint8_t((n & 0x01) | 0x0E | ((tape_input_level - 1) & 0x40)
-                    | ((tape_input - 1) & 0x80));
         return n;
       }
     }
@@ -826,6 +780,7 @@ namespace Ep128 {
     keyboardRow = 0;
     for (int i = 0; i < 16; i++)
       keyboardState[i] = 0xFF;
+    mouseInput = 0xFF;
   }
 
   Dave::~Dave()
@@ -856,6 +811,7 @@ namespace Ep128 {
       for (int i = 0; i < 16; i++)
         keyboardState[i] = 0xFF;
     }
+    mouseInput = 0xFF;
   }
 
   void Dave::setTapeInput(int state, int level)
@@ -901,7 +857,7 @@ namespace Ep128 {
   void Dave::saveState(Ep128Emu::File::Buffer& buf)
   {
     buf.setPosition(0);
-    buf.writeUInt32(0x01000000);        // version number
+    buf.writeUInt32(0x01000001);        // version number
     buf.writeByte(uint8_t(clockDiv));
     buf.writeByte(uint8_t(clockCnt));
     if (polycntVL_table == t.polycnt9_table)
@@ -1042,6 +998,7 @@ namespace Ep128 {
     buf.writeByte(uint8_t(keyboardRow));
     for (size_t i = 0; i < 16; i++)
       buf.writeByte(keyboardState[i]);
+    buf.writeByte(mouseInput);
   }
 
   void Dave::saveState(Ep128Emu::File& f)
@@ -1056,7 +1013,7 @@ namespace Ep128 {
     buf.setPosition(0);
     // check version number
     unsigned int  version = buf.readUInt32();
-    if (version != 0x01000000) {
+    if (!(version >= 0x01000000 && version <= 0x01000001)) {
       buf.setPosition(buf.getDataSize());
       throw Ep128Emu::Exception("incompatible Dave snapshot format");
     }
@@ -1244,6 +1201,10 @@ namespace Ep128 {
     keyboardRow = buf.readByte() & 0x0F;
     for (size_t i = 0; i < 16; i++)
       keyboardState[i] = buf.readByte();
+    if (version >= 0x01000001)
+      mouseInput = buf.readByte();
+    else
+      mouseInput = 0xFF;
     if (buf.getPosition() != buf.getDataSize())
       throw Ep128Emu::Exception("trailing garbage at end of "
                                 "Dave snapshot data");

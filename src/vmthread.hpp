@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2007 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -119,7 +119,26 @@ namespace Ep128Emu {
      */
     void setKeyboardState(uint8_t keyCode_, bool isPressed_);
     /*!
-     * Set state of all keys to released.
+     * Send mouse event to the emulated machine. 'dX' and 'dY' are the
+     * horizontal and vertical motion of the pointer relative to the position
+     * at the time of the previous call, positive values move to the left and
+     * up, respectively.
+     * Each bit of 'buttonState' corresponds to the current state of a mouse
+     * button (1 = pressed):
+     *   b0 = left button
+     *   b1 = right button
+     *   b2 = middle button
+     *   b3..b7 = buttons 4 to 8
+     * 'mouseWheelEvents' can be the sum of any of the following:
+     *   1: mouse wheel up
+     *   2: mouse wheel down
+     *   4: mouse wheel left
+     *   8: mouse wheel right
+     */
+    void setMouseState(int8_t dX, int8_t dY,
+                       uint8_t buttonState, uint8_t mouseWheelEvents);
+    /*!
+     * Set state of all keys and mouse buttons to released.
      */
     void resetKeyboard();
     /*!
@@ -213,6 +232,37 @@ namespace Ep128Emu {
       }
       virtual ~Message_KeyboardEvent();
       virtual void process();
+    };
+    class Message_MouseEvent : public Message {
+     private:
+      uint32_t  mouseData;
+     public:
+      Message_MouseEvent(VMThread& vmThread_, uint32_t mouseData_)
+        : Message(vmThread_),
+          mouseData(mouseData_)
+      {
+      }
+      virtual ~Message_MouseEvent();
+      virtual void process();
+      static inline uint32_t packMouseEvent(int8_t dX, int8_t dY,
+                                            uint8_t buttonState,
+                                            uint8_t mouseWheelEvents)
+      {
+        uint32_t  mouseData_ = 0U;
+        ((unsigned char *) &mouseData_)[0] = uint8_t(dX);
+        ((unsigned char *) &mouseData_)[1] = uint8_t(dY);
+        ((unsigned char *) &mouseData_)[2] = buttonState;
+        ((unsigned char *) &mouseData_)[3] = mouseWheelEvents;
+        return mouseData_;
+      }
+      inline void unpackMouseEvent(int8_t& dX, int8_t& dY, uint8_t& buttonState,
+                                   uint8_t& mouseWheelEvents) const
+      {
+        dX = int8_t(uint8_t(((unsigned char *) &mouseData)[0]));
+        dY = int8_t(uint8_t(((unsigned char *) &mouseData)[1]));
+        buttonState = ((unsigned char *) &mouseData)[2];
+        mouseWheelEvents = ((unsigned char *) &mouseData)[3];
+      }
     };
     class Message_ResetKeyboard : public Message {
      public:

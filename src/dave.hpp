@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2007 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,13 +28,13 @@ namespace Ep128 {
    public:
     // tables for polynomial counters
     // (note: the table data is stored in reverse order)
-    uint8_t *polycnt4_table;        // length = 15,     poly = 0x00000008
-    uint8_t *polycnt5_table;        // length = 31,     poly = 0x00000013
-    uint8_t *polycnt7_table;        // length = 127,    poly = 0x00000040
-    uint8_t *polycnt9_table;        // length = 511,    poly = 0x00000109
-    uint8_t *polycnt11_table;       // length = 2047,   poly = 0x00000403
-    uint8_t *polycnt15_table;       // length = 32767,  poly = 0x00004000
-    uint8_t *polycnt17_table;       // length = 131071, poly = 0x00010005
+    uint8_t *polycnt4_table;        // length = 15,     poly = 0x0000000C
+    uint8_t *polycnt5_table;        // length = 31,     poly = 0x00000014
+    uint8_t *polycnt7_table;        // length = 127,    poly = 0x00000060
+    uint8_t *polycnt9_table;        // length = 511,    poly = 0x00000110
+    uint8_t *polycnt11_table;       // length = 2047,   poly = 0x00000500
+    uint8_t *polycnt15_table;       // length = 32767,  poly = 0x00006000
+    uint8_t *polycnt17_table;       // length = 131071, poly = 0x00012000
     // ----------------
     DaveTables();
     ~DaveTables();
@@ -144,6 +144,10 @@ namespace Ep128 {
     int     tape_input_level;
     int     keyboardRow;
     uint8_t keyboardState[16];
+    // b0..b3 = current nibble
+    // b4 = button 1 (left) state (1 = pressed)
+    // b5 = button 2 (right) state
+    uint8_t mouseInput;                 // 0xFF = mouse input inactive
     // ----------------
     inline void triggerIntSnd();
     inline void triggerInt1Hz();
@@ -220,12 +224,16 @@ namespace Ep128 {
      * +------+-------+-------+-------+-------+-------+-------+-------+-------+
      * | 0x48 |     I |       |     O |     @ |     P |     [ |       |       |
      * +------+-------+-------+-------+-------+-------+-------+-------+-------+
-     * | 0x70 | JOY1R | JOY1L | JOY1D | JOY1U | JOY1F |       |       |       |
+     * | 0x70 | JOY1R | JOY1L | JOY1D | JOY1U | JOY1F | JOY1F2| JOY1F3|       |
      * +------+-------+-------+-------+-------+-------+-------+-------+-------+
-     * | 0x78 | JOY2R | JOY2L | JOY2D | JOY2U | JOY2F |       |       |       |
+     * | 0x78 | JOY2R | JOY2L | JOY2D | JOY2U | JOY2F | JOY2F2| JOY2F3|       |
      * +------+-------+-------+-------+-------+-------+-------+-------+-------+
      */
     void setKeyboardState(int keyCode, int state);
+    inline void setMouseInput(uint8_t value)
+    {
+      mouseInput = value;
+    }
     /*!
      * Reset DAVE.
      */

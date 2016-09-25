@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@ namespace Ep128 {
     {
       Ep128Emu::File::Buffer  buf;
       buf.setPosition(0);
-      buf.writeUInt32(0x01000004);      // version number
+      buf.writeUInt32(0x01000005);      // version number
       buf.writeByte(memory.getPage(0));
       buf.writeByte(memory.getPage(1));
       buf.writeByte(memory.getPage(2));
@@ -62,6 +62,10 @@ namespace Ep128 {
       buf.writeInt64(prvRTCTime);
       for (int i = 0; i < 64; i++)
         buf.writeByte(cmosMemory[i]);
+      buf.writeBoolean(mouseEmulationEnabled);
+      buf.writeByte(prvB7PortState);
+      buf.writeUInt32(mouseTimer);
+      buf.writeUInt64(mouseData);
       f.addChunk(Ep128Emu::File::EP128EMU_CHUNKTYPE_VM_STATE, buf);
     }
   }
@@ -92,6 +96,10 @@ namespace Ep128 {
     stopDemo();
     for (int i = 0; i < 128; i++)
       dave.setKeyboardState(i, 0);
+    mouseDeltaX = 0;
+    mouseDeltaY = 0;
+    mouseButtonState = 0x00;
+    mouseWheelDelta = 0x00;
     // floppy and IDE emulation are disabled while recording or playing demo
     currentFloppyDrive = 0xFF;
     floppyDrives[0].reset();
@@ -104,7 +112,7 @@ namespace Ep128 {
     saveMachineConfiguration(f);
     saveState(f);
     demoBuffer.clear();
-    demoBuffer.writeUInt32(0x00020009); // version 2.0.9
+    demoBuffer.writeUInt32(0x0002000A); // version 2.0.10
     demoFile = &f;
     isRecordingDemo = true;
     setCallback(&demoRecordCallback, this, true);
@@ -136,7 +144,7 @@ namespace Ep128 {
     buf.setPosition(0);
     // check version number
     unsigned int  version = buf.readUInt32();
-    if (!(version >= 0x01000000 && version <= 0x01000004)) {
+    if (!(version >= 0x01000000 && version <= 0x01000005)) {
       buf.setPosition(buf.getDataSize());
       throw Ep128Emu::Exception("incompatible ep128 snapshot version");
     }
@@ -215,6 +223,28 @@ namespace Ep128 {
           spectrumEmulatorIOPorts[i] = 0xFF;
         resetCMOSMemory();
       }
+      if (version >= 0x01000005) {
+        mouseEmulationEnabled = buf.readBoolean();
+        prvB7PortState = buf.readByte();
+        mouseTimer = buf.readUInt32();
+        mouseData = buf.readUInt64();
+        if (mouseTimer)
+          setCallback(&mouseTimerCallback, this, true);
+        else
+          dave.setMouseInput(0xFF);
+      }
+      else {
+        // snapshot from old version without mouse emulation
+        mouseEmulationEnabled = false;
+        prvB7PortState = 0x00;
+        mouseTimer = 0U;
+        mouseData = 0ULL;
+        dave.setMouseInput(0xFF);
+      }
+      mouseDeltaX = 0;
+      mouseDeltaY = 0;
+      mouseButtonState = 0x00;
+      mouseWheelDelta = 0x00;
       if (buf.getPosition() != buf.getDataSize())
         throw Ep128Emu::Exception("trailing garbage at end of "
                                   "ep128 snapshot data");
@@ -274,7 +304,7 @@ namespace Ep128 {
     // check version number
     unsigned int  version = buf.readUInt32();
 #if 0
-    if (version != 0x00020009) {
+    if (version != 0x0002000A) {
       buf.setPosition(buf.getDataSize());
       throw Ep128Emu::Exception("incompatible ep128 demo format");
     }

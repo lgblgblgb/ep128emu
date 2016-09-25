@@ -12,15 +12,23 @@
 ;--------------------------------
 ;General
 
+  ;Use "makensis.exe /DWIN64" to create x64 installer
+  !ifndef WIN64
   ;Name and file
   Name "ep128emu"
-  OutFile "ep128emu-2.0.9.2-beta.exe"
-
+  OutFile "ep128emu-2.0.10-x86-beta.exe"
   ;Default installation folder
   InstallDir "$PROGRAMFILES\ep128emu2"
+  !else
+  Name "ep128emu (x64)"
+  OutFile "ep128emu-2.0.10-x64-beta.exe"
+  InstallDir "$PROGRAMFILES64\ep128emu2"
+  !endif
+
+  RequestExecutionLevel admin
 
   ;Get installation folder from registry if available
-  InstallDirRegKey HKCU "Software\ep128emu2\InstallDirectory" ""
+  InstallDirRegKey HKLM "Software\ep128emu2\InstallDirectory" ""
 
 ;--------------------------------
 ;Variables
@@ -41,7 +49,7 @@
   !insertmacro MUI_PAGE_COMPONENTS
   !insertmacro MUI_PAGE_DIRECTORY
   ;Start Menu Folder Page Configuration
-  !define MUI_STARTMENUPAGE_REGISTRY_ROOT "HKCU"
+  !define MUI_STARTMENUPAGE_REGISTRY_ROOT "HKLM"
   !define MUI_STARTMENUPAGE_REGISTRY_KEY "Software\ep128emu2"
   !define MUI_STARTMENUPAGE_REGISTRY_VALUENAME "Start Menu Folder"
   !insertmacro MUI_PAGE_STARTMENU Application $STARTMENU_FOLDER
@@ -65,25 +73,34 @@ Section "ep128emu binaries" SecMain
   SetOutPath "$INSTDIR"
 
   File "..\COPYING"
-  File /nonfatal "..\LICENSE.FLTK"
-  File /nonfatal "..\LICENSE.Lua"
-  File /nonfatal "..\LICENSE.PortAudio"
-  File /nonfatal "..\LICENSE.SDL"
-  File /nonfatal "..\LICENSE.dotconf"
-  File /nonfatal "..\LICENSE.libsndfile"
+  File "..\licenses\LICENSE.FLTK"
+  File "..\licenses\LICENSE.Lua"
+  File "..\licenses\LICENSE.PortAudio"
+  File "..\licenses\LICENSE.SDL"
+  File "..\licenses\LICENSE.dotconf"
+  File "..\licenses\LICENSE.libsndfile"
   File "/oname=news.txt" "..\NEWS"
   File "/oname=readme.txt" "..\README"
   File "..\ep128emu.exe"
-  File "C:\MinGW\bin\libgcc_s_dw2-1.dll"
-  File "C:\MinGW\bin\libsndfile-1.dll"
-  File "C:\MinGW\bin\libstdc++-6.dll"
-  File "C:\MinGW\bin\lua51-2.dll"
-  File "C:\MinGW\bin\lua51.dll"
   File "..\makecfg.exe"
-  File "C:\MinGW\bin\mingwm10.dll"
-  File "C:\MinGW\bin\portaudio.dll.0.0.19"
-  File "C:\MinGW\bin\SDL.dll"
   File "..\tapeedit.exe"
+  !ifndef WIN64
+  File "C:\mingw32\bin\libgcc_s_dw2-1.dll"
+  File "C:\mingw32\bin\libsndfile-1.dll"
+  File "C:\mingw32\bin\libstdc++-6.dll"
+  File "C:\mingw32\bin\lua51.dll"
+  File "C:\mingw32\bin\lua53.dll"
+  File "C:\mingw32\bin\portaudio_x86.dll"
+  File "C:\mingw32\bin\SDL.dll"
+  !else
+  File "C:\mingw64\bin\libgcc_s_seh-1.dll"
+  File "C:\mingw64\bin\libsndfile-1.dll"
+  File "C:\mingw64\bin\libstdc++-6.dll"
+  File "C:\mingw64\bin\lua51.dll"
+  File "C:\mingw64\bin\lua53.dll"
+  File "C:\mingw64\bin\portaudio_x64.dll"
+  File "C:\mingw64\bin\SDL.dll"
+  !endif
 
   SetOutPath "$INSTDIR\config"
 
@@ -106,12 +123,14 @@ Section "ep128emu binaries" SecMain
   SetOutPath "$INSTDIR\tape"
 
   ;Store installation folder
-  WriteRegStr HKCU "Software\ep128emu2\InstallDirectory" "" $INSTDIR
+  WriteRegStr HKLM "Software\ep128emu2\InstallDirectory" "" $INSTDIR
 
   ;Create uninstaller
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+
+    SetShellVarContext all
 
     ;Create shortcuts
     CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER"
@@ -198,6 +217,10 @@ Section "ep128emu source code" SecSrc
   File "..\installer\ep128emu"
   File "..\installer\makecfg.cpp"
 
+  SetOutPath "$INSTDIR\src\licenses"
+
+  File "..\licenses\LICENSE.*"
+
   SetOutPath "$INSTDIR\src\msvc"
 
   File "..\msvc\*.rules"
@@ -249,6 +272,52 @@ Section "ep128emu source code" SecSrc
   File "..\tapeutil\*.fl"
   File "..\tapeutil\tapeio.cpp"
   File "..\tapeutil\tapeio.hpp"
+
+  SetOutPath "$INSTDIR\src\util"
+
+  SetOutPath "$INSTDIR\src\util\dtf"
+
+  File "..\util\dtf\*.cpp"
+  File "..\util\dtf\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epcompress"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\src"
+
+  File "..\util\epcompress\src\*.cpp"
+  File "..\util\epcompress\src\*.hpp"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\uncompress"
+
+  File "..\util\epcompress\uncompress\*.ext"
+  File "..\util\epcompress\uncompress\*.rom"
+  File "..\util\epcompress\uncompress\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\z80_asm"
+
+  File "..\util\epcompress\z80_asm\*.f"
+  File "..\util\epcompress\z80_asm\*.py"
+  File "..\util\epcompress\z80_asm\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\iview"
+
+  File "..\util\epimgconv\iview\*.com"
+  File "..\util\epimgconv\iview\*.ext"
+  File "..\util\epimgconv\iview\*.lua"
+  File "..\util\epimgconv\iview\*.rom"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\iview\src"
+
+  File "..\util\epimgconv\iview\src\*.hea"
+  File "..\util\epimgconv\iview\src\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\src"
+
+  File "..\util\epimgconv\src\*.cpp"
+  File "..\util\epimgconv\src\*.hpp"
+  File "..\util\epimgconv\src\*.s"
 
   SetOutPath "$INSTDIR\src\z80"
 
@@ -340,6 +409,16 @@ Section "Install configuration files" SecInstCfg
 
 SectionEnd
 
+Section "Install epimgconv and other utilities" SecUtils
+
+  SetOutPath "$INSTDIR"
+
+  File /nonfatal "..\dtf.exe"
+  File /nonfatal "..\epcompress.exe"
+  File /nonfatal "..\epimgconv.exe"
+
+SectionEnd
+
 ;--------------------------------
 ;Descriptions
 
@@ -351,6 +430,7 @@ SectionEnd
   LangString DESC_SecAssocCPC ${LANG_ENGLISH} "Associate CPC .CDT, .DSK and .SNA files with ep128emu"
   LangString DESC_SecDLRoms ${LANG_ENGLISH} "Download and install ROM images"
   LangString DESC_SecInstCfg ${LANG_ENGLISH} "Install configuration files"
+  LangString DESC_SecUtils ${LANG_ENGLISH} "Install epimgconv and other utilities"
 
   ;Assign language strings to sections
   !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -361,12 +441,15 @@ SectionEnd
     !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocCPC} $(DESC_SecAssocCPC)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDLRoms} $(DESC_SecDLRoms)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecInstCfg} $(DESC_SecInstCfg)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecUtils} $(DESC_SecUtils)
   !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------
 ;Uninstaller Section
 
 Section "Uninstall"
+
+  SetShellVarContext all
 
   Delete "$INSTDIR\COPYING"
   Delete "$INSTDIR\LICENSE.FLTK"
@@ -377,15 +460,19 @@ Section "Uninstall"
   Delete "$INSTDIR\LICENSE.libsndfile"
   Delete "$INSTDIR\news.txt"
   Delete "$INSTDIR\readme.txt"
+  Delete "$INSTDIR\dtf.exe"
   Delete "$INSTDIR\ep128emu.exe"
+  Delete "$INSTDIR\epcompress.exe"
+  Delete "$INSTDIR\epimgconv.exe"
   Delete "$INSTDIR\libgcc_s_dw2-1.dll"
+  Delete "$INSTDIR\libgcc_s_seh-1.dll"
   Delete "$INSTDIR\libsndfile-1.dll"
   Delete "$INSTDIR\libstdc++-6.dll"
-  Delete "$INSTDIR\lua51-2.dll"
   Delete "$INSTDIR\lua51.dll"
+  Delete "$INSTDIR\lua53.dll"
   Delete "$INSTDIR\makecfg.exe"
-  Delete "$INSTDIR\mingwm10.dll"
-  Delete "$INSTDIR\portaudio.dll.0.0.19"
+  Delete "$INSTDIR\portaudio_x64.dll"
+  Delete "$INSTDIR\portaudio_x86.dll"
   Delete "$INSTDIR\SDL.dll"
   Delete "$INSTDIR\tapeedit.exe"
   Delete "$INSTDIR\config\EP_128k_EXDOS.cfg"
@@ -656,8 +743,8 @@ Section "Uninstall"
     StrCmp $MUI_TEMP $SMPROGRAMS startMenuDeleteLoopDone startMenuDeleteLoop
   startMenuDeleteLoopDone:
 
-  DeleteRegKey /ifempty HKCU "Software\ep128emu2\InstallDirectory"
-  DeleteRegKey /ifempty HKCU "Software\ep128emu2"
+  DeleteRegKey /ifempty HKLM "Software\ep128emu2\InstallDirectory"
+  DeleteRegKey /ifempty HKLM "Software\ep128emu2"
 
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

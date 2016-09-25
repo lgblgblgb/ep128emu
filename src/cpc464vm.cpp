@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -60,10 +60,10 @@ static const uint8_t  keyboardConvTable[256] = {
   99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
   99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
   99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
-  // JOY1R  JOY1L    JOY1D    JOY1U    JOY1F
-  99, 75,  99, 74,  99, 73,  99, 72,  76, 77,  99, 99,  99, 99,  99, 99,
-  // JOY2R  JOY2L    JOY2D    JOY2U    JOY2F
-  99, 51,  99, 50,  99, 49,  99, 48,  52, 53,  99, 99,  99, 99,  99, 99
+  // JOY1R  JOY1L    JOY1D    JOY1U    JOY1F   JOY1F2   JOY1F3
+  99, 75,  99, 74,  99, 73,  99, 72,  99, 76,  99, 77,  99, 78,  99, 99,
+  // JOY2R  JOY2L    JOY2D    JOY2U    JOY2F   JOY2F2   JOY2F3
+  99, 51,  99, 50,  99, 49,  99, 48,  99, 52,  99, 53,  99, 54,  99, 99
 };
 
 namespace CPC464 {
