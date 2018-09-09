@@ -12,15 +12,24 @@
 ;--------------------------------
 ;General
 
+  ;Use "makensis.exe /DWIN64" to create x64 installer
+  ;NOTE: this script requires INetC (nsis.sourceforge.net/Inetc_plug-in)
+  !ifndef WIN64
   ;Name and file
   Name "ep128emu"
-  OutFile "ep128emu-2.0.9.2-beta.exe"
-
+  OutFile "ep128emu-2.0.11.2-x86.exe"
   ;Default installation folder
   InstallDir "$PROGRAMFILES\ep128emu2"
+  !else
+  Name "ep128emu (x64)"
+  OutFile "ep128emu-2.0.11.2-x64.exe"
+  InstallDir "$PROGRAMFILES64\ep128emu2"
+  !endif
+
+  RequestExecutionLevel admin
 
   ;Get installation folder from registry if available
-  InstallDirRegKey HKCU "Software\ep128emu2\InstallDirectory" ""
+  InstallDirRegKey HKLM "Software\ep128emu2\InstallDirectory" ""
 
 ;--------------------------------
 ;Variables
@@ -41,7 +50,7 @@
   !insertmacro MUI_PAGE_COMPONENTS
   !insertmacro MUI_PAGE_DIRECTORY
   ;Start Menu Folder Page Configuration
-  !define MUI_STARTMENUPAGE_REGISTRY_ROOT "HKCU"
+  !define MUI_STARTMENUPAGE_REGISTRY_ROOT "HKLM"
   !define MUI_STARTMENUPAGE_REGISTRY_KEY "Software\ep128emu2"
   !define MUI_STARTMENUPAGE_REGISTRY_VALUENAME "Start Menu Folder"
   !insertmacro MUI_PAGE_STARTMENU Application $STARTMENU_FOLDER
@@ -65,25 +74,34 @@ Section "ep128emu binaries" SecMain
   SetOutPath "$INSTDIR"
 
   File "..\COPYING"
-  File /nonfatal "..\LICENSE.FLTK"
-  File /nonfatal "..\LICENSE.Lua"
-  File /nonfatal "..\LICENSE.PortAudio"
-  File /nonfatal "..\LICENSE.SDL"
-  File /nonfatal "..\LICENSE.dotconf"
-  File /nonfatal "..\LICENSE.libsndfile"
+  File "..\licenses\LICENSE.FLTK"
+  File "..\licenses\LICENSE.Lua"
+  File "..\licenses\LICENSE.PortAudio"
+  File "..\licenses\LICENSE.SDL"
+  File "..\licenses\LICENSE.dotconf"
+  File "..\licenses\LICENSE.libsndfile"
   File "/oname=news.txt" "..\NEWS"
   File "/oname=readme.txt" "..\README"
   File "..\ep128emu.exe"
-  File "C:\MinGW\bin\libgcc_s_dw2-1.dll"
-  File "C:\MinGW\bin\libsndfile-1.dll"
-  File "C:\MinGW\bin\libstdc++-6.dll"
-  File "C:\MinGW\bin\lua51-2.dll"
-  File "C:\MinGW\bin\lua51.dll"
   File "..\makecfg.exe"
-  File "C:\MinGW\bin\mingwm10.dll"
-  File "C:\MinGW\bin\portaudio.dll.0.0.19"
-  File "C:\MinGW\bin\SDL.dll"
   File "..\tapeedit.exe"
+  !ifndef WIN64
+  File "C:\mingw32\bin\libgcc_s_dw2-1.dll"
+  File "C:\mingw32\bin\libsndfile-1.dll"
+  File "C:\mingw32\bin\libstdc++-6.dll"
+  File "C:\mingw32\bin\lua51.dll"
+  File "C:\mingw32\bin\lua53.dll"
+  File "C:\mingw32\bin\portaudio_x86.dll"
+  File "C:\mingw32\bin\SDL.dll"
+  !else
+  File "C:\mingw64\bin\libgcc_s_seh-1.dll"
+  File "C:\mingw64\bin\libsndfile-1.dll"
+  File "C:\mingw64\bin\libstdc++-6.dll"
+  File "C:\mingw64\bin\lua51.dll"
+  File "C:\mingw64\bin\lua53.dll"
+  File "C:\mingw64\bin\portaudio_x64.dll"
+  File "C:\mingw64\bin\SDL.dll"
+  !endif
 
   SetOutPath "$INSTDIR\config"
 
@@ -100,24 +118,29 @@ Section "ep128emu binaries" SecMain
   SetOutPath "$INSTDIR\roms"
 
   File "..\roms\epfileio.rom"
+  File "..\roms\tvcfileio.rom"
+  File "..\util\epimgconv\iview\iview.rom"
 
   SetOutPath "$INSTDIR\snapshot"
 
   SetOutPath "$INSTDIR\tape"
 
   ;Store installation folder
-  WriteRegStr HKCU "Software\ep128emu2\InstallDirectory" "" $INSTDIR
+  WriteRegStr HKLM "Software\ep128emu2\InstallDirectory" "" $INSTDIR
 
   ;Create uninstaller
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
 
+    SetShellVarContext all
+
     ;Create shortcuts
     CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER"
     CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER\GUI themes"
     CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER\Spectrum emulator"
     CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER\CPC emulator"
+    CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator"
     SetOutPath "$INSTDIR"
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\ep128emu - OpenGL mode.lnk" "$INSTDIR\ep128emu.exe" '-opengl'
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\ep128emu - software mode.lnk" "$INSTDIR\ep128emu.exe" '-no-opengl'
@@ -143,6 +166,14 @@ Section "ep128emu binaries" SecMain
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\CPC emulator\cpc6128emu - Software - Win2000 theme.lnk" "$INSTDIR\ep128emu.exe" '-cpc -no-opengl -colorscheme 1' "$INSTDIR\ep128emu.exe" 2
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\CPC emulator\cpc6128emu - Software - plastic theme.lnk" "$INSTDIR\ep128emu.exe" '-cpc -no-opengl -colorscheme 2' "$INSTDIR\ep128emu.exe" 2
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\CPC emulator\cpc6128emu - Software - Gtk+ theme.lnk" "$INSTDIR\ep128emu.exe" '-cpc -no-opengl -colorscheme 3' "$INSTDIR\ep128emu.exe" 2
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - GL - default theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -opengl' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - GL - Win2000 theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -opengl -colorscheme 1' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - GL - plastic theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -opengl -colorscheme 2' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - GL - Gtk+ theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -opengl -colorscheme 3' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - Software - default theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -no-opengl' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - Software - Win2000 theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -no-opengl -colorscheme 1' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - Software - plastic theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -no-opengl -colorscheme 2' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\TVC emulator\tvc64emu - Software - Gtk+ theme.lnk" "$INSTDIR\ep128emu.exe" '-tvc -no-opengl -colorscheme 3' "$INSTDIR\ep128emu.exe" 3
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\README.lnk" "$INSTDIR\readme.txt"
     SetOutPath "$INSTDIR\tape"
     CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\Tape editor.lnk" "$INSTDIR\tapeedit.exe"
@@ -165,6 +196,8 @@ Section "ep128emu source code" SecSrc
   File "..\*.patch"
   File "..\*.sh"
   File "..\*.spec"
+  File "..\.gitignore"
+  File "..\maketranslation"
 
   SetOutPath "$INSTDIR\src\Fl_Native_File_Chooser"
 
@@ -185,29 +218,6 @@ Section "ep128emu source code" SecSrc
   File "..\disk\*.zip"
   File "..\disk\*.bz2"
 
-  SetOutPath "$INSTDIR\src\gui"
-
-  File "..\gui\*.fl"
-  File /x "*_fl.cpp" "..\gui\*.cpp"
-  File /x "*_fl.hpp" "..\gui\*.hpp"
-
-  SetOutPath "$INSTDIR\src\installer"
-
-  File "..\installer\*.nsi"
-  File "..\installer\*.fl"
-  File "..\installer\ep128emu"
-  File "..\installer\makecfg.cpp"
-
-  SetOutPath "$INSTDIR\src\msvc"
-
-  File "..\msvc\*.rules"
-  File "..\msvc\*.sln"
-  File "..\msvc\*.vcproj"
-
-  SetOutPath "$INSTDIR\src\msvc\include"
-
-  File "..\msvc\include\*.h"
-
   SetOutPath "$INSTDIR\src\ep128emu.app"
 
   SetOutPath "$INSTDIR\src\ep128emu.app\Contents"
@@ -221,6 +231,112 @@ Section "ep128emu source code" SecSrc
 
   File "..\ep128emu.app\Contents\Resources\ep128emu.icns"
 
+  SetOutPath "$INSTDIR\src\gui"
+
+  File "..\gui\*.fl"
+  File /x "*_fl.cpp" "..\gui\*.cpp"
+  File /x "*_fl.hpp" "..\gui\*.hpp"
+
+  SetOutPath "$INSTDIR\src\installer"
+
+  File "..\installer\*.nsi"
+  File "..\installer\*.fl"
+  File "..\installer\makecfg.cpp"
+
+  SetOutPath "$INSTDIR\src\licenses"
+
+  File "..\licenses\LICENSE.*"
+
+  SetOutPath "$INSTDIR\src\msvc"
+
+  File "..\msvc\*.rules"
+  File "..\msvc\*.sln"
+  File "..\msvc\*.vcproj"
+
+  SetOutPath "$INSTDIR\src\msvc\include"
+
+  File "..\msvc\include\*.h"
+
+  SetOutPath "$INSTDIR\src\portmidi"
+
+  File "..\portmidi\*.png"
+  File "..\portmidi\*.txt"
+  File "..\portmidi\Doxyfile"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_common"
+
+  File "..\portmidi\pm_common\*.c"
+  File "..\portmidi\pm_common\*.h"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_dylib"
+
+  File "..\portmidi\pm_dylib\*.txt"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_linux"
+
+  File "..\portmidi\pm_linux\*.c"
+  File "..\portmidi\pm_linux\*.h"
+  File "..\portmidi\pm_linux\*.txt"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac"
+
+  File "..\portmidi\pm_mac\*.c"
+  File "..\portmidi\pm_mac\*.h"
+  File "..\portmidi\pm_mac\*.txt"
+  File "..\portmidi\pm_mac\Makefile.osx"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac\pmdefaults"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac\pmdefaults\make"
+
+  File "..\portmidi\pm_mac\pmdefaults\make\*.sh"
+  File "..\portmidi\pm_mac\pmdefaults\make\*.xml"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac\pmdefaults\resources"
+
+  File "..\portmidi\pm_mac\pmdefaults\resources\*.plist"
+  File "..\portmidi\pm_mac\pmdefaults\resources\Manifest"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac\pmdefaults\resources\English.lproj"
+
+  File "..\portmidi\pm_mac\pmdefaults\resources\English.lproj\*.rtf"
+  File "..\portmidi\pm_mac\pmdefaults\resources\English.lproj\*.strings"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mac\pm_mac.xcodeproj"
+
+  File "..\portmidi\pm_mac\pm_mac.xcodeproj\*.pbxproj"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mingw"
+
+  File "..\portmidi\pm_mingw\*.txt"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_mingw\msys"
+
+  File "..\portmidi\pm_mingw\msys\*.txt"
+
+  SetOutPath "$INSTDIR\src\portmidi\pm_win"
+
+  File "..\portmidi\pm_win\*.c"
+  File "..\portmidi\pm_win\*.h"
+  File "..\portmidi\pm_win\*.txt"
+
+  SetOutPath "$INSTDIR\src\portmidi\porttime"
+
+  File "..\portmidi\porttime\*.c"
+  File "..\portmidi\porttime\*.h"
+
+  SetOutPath "$INSTDIR\src\resid"
+
+  File "..\resid\AUTHORS"
+  File "..\resid\COPYING"
+  File "..\resid\ChangeLog"
+  File "..\resid\NEWS"
+  File "..\resid\README"
+  File "..\resid\THANKS"
+  File "..\resid\TODO"
+  File "..\resid\*.cpp"
+  File "..\resid\*.hpp"
+
   SetOutPath "$INSTDIR\src\resource"
 
   File "..\resource\*.rc"
@@ -228,9 +344,6 @@ Section "ep128emu source code" SecSrc
   File "..\resource\*.png"
   File "..\resource\*.desktop"
   File "..\resource\Makefile"
-  File "..\resource\cpc464emu"
-  File "..\resource\zx128emu"
-  File "..\resource\makecfg-wrapper"
 
   SetOutPath "$INSTDIR\src\roms"
 
@@ -249,6 +362,61 @@ Section "ep128emu source code" SecSrc
   File "..\tapeutil\*.fl"
   File "..\tapeutil\tapeio.cpp"
   File "..\tapeutil\tapeio.hpp"
+
+  SetOutPath "$INSTDIR\src\util"
+
+  File "..\util\*.patch"
+
+  SetOutPath "$INSTDIR\src\util\dtf"
+
+  File "..\util\dtf\*.cpp"
+  File "..\util\dtf\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epcompress"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\src"
+
+  File "..\util\epcompress\src\*.cpp"
+  File "..\util\epcompress\src\*.hpp"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\uncompress"
+
+  File "..\util\epcompress\uncompress\*.ext"
+  File "..\util\epcompress\uncompress\*.rom"
+  File "..\util\epcompress\uncompress\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epcompress\z80_asm"
+
+  File "..\util\epcompress\z80_asm\*.f"
+  File "..\util\epcompress\z80_asm\*.py"
+  File "..\util\epcompress\z80_asm\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\iview"
+
+  File "..\util\epimgconv\iview\*.com"
+  File "..\util\epimgconv\iview\*.ext"
+  File "..\util\epimgconv\iview\*.lua"
+  File "..\util\epimgconv\iview\*.rom"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\iview\old"
+
+  File "..\util\epimgconv\iview\old\*.com"
+  File "..\util\epimgconv\iview\old\*.ext"
+  File "..\util\epimgconv\iview\old\*.hea"
+  File "..\util\epimgconv\iview\old\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\iview\src"
+
+  File "..\util\epimgconv\iview\src\*.s"
+
+  SetOutPath "$INSTDIR\src\util\epimgconv\src"
+
+  File "..\util\epimgconv\src\*.fl"
+  File /x "*_fl.cpp" "..\util\epimgconv\src\*.cpp"
+  File /x "*_fl.hpp" "..\util\epimgconv\src\*.hpp"
+  File "..\util\epimgconv\src\*.s"
 
   SetOutPath "$INSTDIR\src\z80"
 
@@ -289,18 +457,13 @@ Section "Associate Spectrum .TZX and .Z80 files with ep128emu" SecAssocZX
 
 SectionEnd
 
-Section "Associate CPC .CDT, .DSK and .SNA files with ep128emu" SecAssocCPC
+Section "Associate CPC .CDT and .SNA files with ep128emu" SecAssocCPC
 
   WriteRegStr HKCR ".cdt" "" "Ep128Emu.CDTFile"
   WriteRegStr HKCR "Ep128Emu.CDTFile" "" "Ep128Emu CPC tape file"
   WriteRegStr HKCR "Ep128Emu.CDTFile\DefaultIcon" "" "$INSTDIR\ep128emu.exe,2"
   WriteRegStr HKCR "Ep128Emu.CDTFile\shell" "" "open"
   WriteRegStr HKCR "Ep128Emu.CDTFile\shell\open\command" "" '"$INSTDIR\ep128emu.exe" -cpc "tape.imageFile=%1"'
-  WriteRegStr HKCR ".dsk" "" "Ep128Emu.DSKFile"
-  WriteRegStr HKCR "Ep128Emu.DSKFile" "" "Ep128Emu CPC disk image"
-  WriteRegStr HKCR "Ep128Emu.DSKFile\DefaultIcon" "" "$INSTDIR\ep128emu.exe,2"
-  WriteRegStr HKCR "Ep128Emu.DSKFile\shell" "" "open"
-  WriteRegStr HKCR "Ep128Emu.DSKFile\shell\open\command" "" '"$INSTDIR\ep128emu.exe" -cpc "floppy.a.imageFile=%1"'
   WriteRegStr HKCR ".sna" "" "Ep128Emu.SNAFile"
   WriteRegStr HKCR "Ep128Emu.SNAFile" "" "Ep128Emu CPC snapshot file"
   WriteRegStr HKCR "Ep128Emu.SNAFile\DefaultIcon" "" "$INSTDIR\ep128emu.exe,2"
@@ -309,21 +472,41 @@ Section "Associate CPC .CDT, .DSK and .SNA files with ep128emu" SecAssocCPC
 
 SectionEnd
 
+Section /o "Associate CPC .DSK files with ep128emu" SecAssocDiskCPC
+
+  WriteRegStr HKCR ".dsk" "" "Ep128Emu.CPCDiskFile"
+  WriteRegStr HKCR "Ep128Emu.CPCDiskFile" "" "Ep128Emu CPC disk image"
+  WriteRegStr HKCR "Ep128Emu.CPCDiskFile\DefaultIcon" "" "$INSTDIR\ep128emu.exe,2"
+  WriteRegStr HKCR "Ep128Emu.CPCDiskFile\shell" "" "open"
+  WriteRegStr HKCR "Ep128Emu.CPCDiskFile\shell\open\command" "" '"$INSTDIR\ep128emu.exe" -cpc "floppy.a.imageFile=%1"'
+
+SectionEnd
+
+Section /o "Associate TVC .DSK files with ep128emu" SecAssocDiskTVC
+
+  WriteRegStr HKCR ".dsk" "" "Ep128Emu.TVCDiskFile"
+  WriteRegStr HKCR "Ep128Emu.TVCDiskFile" "" "Ep128Emu TVC disk image"
+  WriteRegStr HKCR "Ep128Emu.TVCDiskFile\DefaultIcon" "" "$INSTDIR\ep128emu.exe,3"
+  WriteRegStr HKCR "Ep128Emu.TVCDiskFile\shell" "" "open"
+  WriteRegStr HKCR "Ep128Emu.TVCDiskFile\shell\open\command" "" '"$INSTDIR\ep128emu.exe" -tvc "floppy.a.imageFile=%1"'
+
+SectionEnd
+
 Section "Download and install ROM images" SecDLRoms
 
   SetOutPath "$INSTDIR\roms"
 
-  NSISdl::download "http://ep128emu.enterpriseforever.com/roms/ep128emu_roms.bin" "$INSTDIR\roms\ep128emu_roms.bin"
+  INetC::get "http://ep128.hu/Emu/ep128emu_roms-2.0.11.bin" "$INSTDIR\roms\ep128emu_roms-2.0.11.bin"
   Pop $R0
-  StrCmp $R0 "success" downloadDone 0
-  StrCmp $R0 "cancel" downloadDone 0
+  StrCmp $R0 "OK" downloadDone 0
+  StrCmp $R0 "Cancelled" downloadDone 0
 
-  MessageBox MB_OK "WARNING: download from ep128emu.enterpriseforever.com failed ($R0), trying ep128.hu instead"
+  MessageBox MB_OK "WARNING: download from ep128.hu failed ($R0), trying enterpriseforever.com instead"
 
-  NSISdl::download "http://ep128.hu/Emu/ep128emu_roms.bin" "$INSTDIR\roms\ep128emu_roms.bin"
+  INetC::get "https://enterpriseforever.com/letoltesek-downloads/egyeb-misc/?action=dlattach;attach=16928" "$INSTDIR\roms\ep128emu_roms-2.0.11.bin"
   Pop $R0
-  StrCmp $R0 "success" downloadDone 0
-  StrCmp $R0 "cancel" downloadDone 0
+  StrCmp $R0 "OK" downloadDone 0
+  StrCmp $R0 "Cancelled" downloadDone 0
 
   MessageBox MB_OK "Download failed: $R0"
 
@@ -336,7 +519,53 @@ Section "Install configuration files" SecInstCfg
   SectionIn RO
 
   SetOutPath "$INSTDIR"
-  ExecWait '"$INSTDIR\makecfg.exe" "$INSTDIR"'
+  ExecWait '"$INSTDIR\makecfg.exe" "-c" "$INSTDIR"'
+
+SectionEnd
+
+Section "Install epimgconv and other utilities" SecUtils
+
+  SetOutPath "$INSTDIR"
+
+  File /nonfatal "..\dtf.exe"
+  File /nonfatal "..\epcompress.exe"
+  File /nonfatal "..\epimgconv.exe"
+  File /nonfatal "..\epimgconv_gui.exe"
+  File /nonfatal "..\iview2png.exe"
+
+  !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+
+    SetShellVarContext all
+
+    ;Create shortcuts
+    SetOutPath "$INSTDIR"
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\Image converter utility.lnk" "$INSTDIR\epimgconv_gui.exe"
+
+  !insertmacro MUI_STARTMENU_WRITE_END
+
+SectionEnd
+
+Section "Create desktop shortcuts" SecDesktop
+
+  !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+
+    SetShellVarContext all
+
+    ;Create shortcuts
+    SetOutPath "$INSTDIR"
+
+    CreateShortCut "$DESKTOP\ep128emu.lnk" "$INSTDIR\ep128emu.exe" '-opengl'
+    CreateShortCut "$DESKTOP\zx128emu.lnk" "$INSTDIR\ep128emu.exe" '-zx -opengl' "$INSTDIR\ep128emu.exe" 1
+    CreateShortCut "$DESKTOP\cpc6128emu.lnk" "$INSTDIR\ep128emu.exe" '-cpc -opengl' "$INSTDIR\ep128emu.exe" 2
+    CreateShortCut "$DESKTOP\tvc64emu.lnk" "$INSTDIR\ep128emu.exe" '-tvc -opengl' "$INSTDIR\ep128emu.exe" 3
+    CreateShortCut "$DESKTOP\ep128emu tape editor.lnk" "$INSTDIR\tapeedit.exe"
+    SectionGetFlags ${SecUtils} $0
+    IntOp $0 $0 & ${SF_SELECTED}
+    IntCmp $0 0 noImgConv
+    CreateShortCut "$DESKTOP\epimgconv.lnk" "$INSTDIR\epimgconv_gui.exe"
+noImgConv:
+
+  !insertmacro MUI_STARTMENU_WRITE_END
 
 SectionEnd
 
@@ -348,9 +577,13 @@ SectionEnd
   LangString DESC_SecSrc ${LANG_ENGLISH} "ep128emu source code"
   LangString DESC_SecAssocFiles ${LANG_ENGLISH} "Associate snapshot and demo files with ep128emu"
   LangString DESC_SecAssocZX ${LANG_ENGLISH} "Associate Spectrum .TZX and .Z80 files with ep128emu"
-  LangString DESC_SecAssocCPC ${LANG_ENGLISH} "Associate CPC .CDT, .DSK and .SNA files with ep128emu"
+  LangString DESC_SecAssocCPC ${LANG_ENGLISH} "Associate CPC .CDT and .SNA files with ep128emu"
+  LangString DESC_SecAssocDiskCPC ${LANG_ENGLISH} "Associate CPC .DSK files with ep128emu"
+  LangString DESC_SecAssocDiskTVC ${LANG_ENGLISH} "Associate TVC .DSK files with ep128emu"
   LangString DESC_SecDLRoms ${LANG_ENGLISH} "Download and install ROM images"
   LangString DESC_SecInstCfg ${LANG_ENGLISH} "Install configuration files"
+  LangString DESC_SecUtils ${LANG_ENGLISH} "Install epimgconv and other utilities"
+  LangString DESC_SecDesktop ${LANG_ENGLISH} "Create desktop shortcuts"
 
   ;Assign language strings to sections
   !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -359,14 +592,20 @@ SectionEnd
     !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocFiles} $(DESC_SecAssocFiles)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocZX} $(DESC_SecAssocZX)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocCPC} $(DESC_SecAssocCPC)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocDiskCPC} $(DESC_SecAssocDiskCPC)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecAssocDiskTVC} $(DESC_SecAssocDiskTVC)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDLRoms} $(DESC_SecDLRoms)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecInstCfg} $(DESC_SecInstCfg)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecUtils} $(DESC_SecUtils)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_SecDesktop)
   !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------
 ;Uninstaller Section
 
 Section "Uninstall"
+
+  SetShellVarContext all
 
   Delete "$INSTDIR\COPYING"
   Delete "$INSTDIR\LICENSE.FLTK"
@@ -377,15 +616,21 @@ Section "Uninstall"
   Delete "$INSTDIR\LICENSE.libsndfile"
   Delete "$INSTDIR\news.txt"
   Delete "$INSTDIR\readme.txt"
+  Delete "$INSTDIR\dtf.exe"
   Delete "$INSTDIR\ep128emu.exe"
+  Delete "$INSTDIR\epcompress.exe"
+  Delete "$INSTDIR\epimgconv.exe"
+  Delete "$INSTDIR\epimgconv_gui.exe"
+  Delete "$INSTDIR\iview2png.exe"
   Delete "$INSTDIR\libgcc_s_dw2-1.dll"
+  Delete "$INSTDIR\libgcc_s_seh-1.dll"
   Delete "$INSTDIR\libsndfile-1.dll"
   Delete "$INSTDIR\libstdc++-6.dll"
-  Delete "$INSTDIR\lua51-2.dll"
   Delete "$INSTDIR\lua51.dll"
+  Delete "$INSTDIR\lua53.dll"
   Delete "$INSTDIR\makecfg.exe"
-  Delete "$INSTDIR\mingwm10.dll"
-  Delete "$INSTDIR\portaudio.dll.0.0.19"
+  Delete "$INSTDIR\portaudio_x64.dll"
+  Delete "$INSTDIR\portaudio_x86.dll"
   Delete "$INSTDIR\SDL.dll"
   Delete "$INSTDIR\tapeedit.exe"
   Delete "$INSTDIR\config\EP_128k_EXDOS.cfg"
@@ -432,6 +677,7 @@ Section "Uninstall"
   Delete "$INSTDIR\config\cpc\CPC_64k_AMSDOS.cfg"
   Delete "$INSTDIR\config\ep128brd\EP2048k_EXOS231_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128brd\EP2048k_EXOS232_EXDOS_utils.cfg"
+  Delete "$INSTDIR\config\ep128brd\EP2048k_EXOS24_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128brd\EP_128k_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128brd\EP_128k_EXDOS_FileIO.cfg"
   Delete "$INSTDIR\config\ep128brd\EP_128k_EXDOS_FileIO_SpectrumEmulator.cfg"
@@ -446,8 +692,10 @@ Section "Uninstall"
   Delete "$INSTDIR\config\ep128brd\EP_640k_EXOS232_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128brd\EP_640k_EXOS232_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128brd\EP_640k_EXOS232_IDE_utils.cfg"
+  Delete "$INSTDIR\config\ep128brd\EP_640k_EXOS24_SDEXT_utils.cfg"
   Delete "$INSTDIR\config\ep128esp\EP2048k_EXOS231_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128esp\EP2048k_EXOS232_EXDOS_utils.cfg"
+  Delete "$INSTDIR\config\ep128esp\EP2048k_EXOS24_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128esp\EP_128k_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128esp\EP_128k_EXDOS_FileIO.cfg"
   Delete "$INSTDIR\config\ep128esp\EP_128k_EXDOS_FileIO_SpectrumEmulator.cfg"
@@ -462,8 +710,10 @@ Section "Uninstall"
   Delete "$INSTDIR\config\ep128esp\EP_640k_EXOS232_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128esp\EP_640k_EXOS232_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128esp\EP_640k_EXOS232_IDE_utils.cfg"
+  Delete "$INSTDIR\config\ep128esp\EP_640k_EXOS24_SDEXT_utils.cfg"
   Delete "$INSTDIR\config\ep128hun\EP2048k_EXOS231_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128hun\EP2048k_EXOS232_EXDOS_utils.cfg"
+  Delete "$INSTDIR\config\ep128hun\EP2048k_EXOS24_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128hun\EP_128k_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128hun\EP_128k_EXDOS_FileIO.cfg"
   Delete "$INSTDIR\config\ep128hun\EP_128k_EXDOS_FileIO_SpectrumEmulator.cfg"
@@ -480,8 +730,10 @@ Section "Uninstall"
   Delete "$INSTDIR\config\ep128hun\EP_640k_EXOS232_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128hun\EP_640k_EXOS232_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128hun\EP_640k_EXOS232_IDE_utils.cfg"
+  Delete "$INSTDIR\config\ep128hun\EP_640k_EXOS24_SDEXT_utils.cfg"
   Delete "$INSTDIR\config\ep128uk\EP2048k_EXOS231_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128uk\EP2048k_EXOS232_EXDOS_utils.cfg"
+  Delete "$INSTDIR\config\ep128uk\EP2048k_EXOS24_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128uk\EP_128k_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128uk\EP_128k_EXDOS_EP-PLUS.cfg"
   Delete "$INSTDIR\config\ep128uk\EP_128k_EXDOS_EP-PLUS_TASMON.cfg"
@@ -502,6 +754,7 @@ Section "Uninstall"
   Delete "$INSTDIR\config\ep128uk\EP_640k_EXOS232_EXDOS.cfg"
   Delete "$INSTDIR\config\ep128uk\EP_640k_EXOS232_EXDOS_utils.cfg"
   Delete "$INSTDIR\config\ep128uk\EP_640k_EXOS232_IDE_utils.cfg"
+  Delete "$INSTDIR\config\ep128uk\EP_640k_EXOS24_SDEXT_utils.cfg"
   Delete "$INSTDIR\config\ep64\EP_64k_EXDOS.cfg"
   Delete "$INSTDIR\config\ep64\EP_64k_EXDOS_FileIO.cfg"
   Delete "$INSTDIR\config\ep64\EP_64k_EXDOS_NoCartridge.cfg"
@@ -510,18 +763,36 @@ Section "Uninstall"
   Delete "$INSTDIR\config\ep64\EP_64k_Tape_FileIO.cfg"
   Delete "$INSTDIR\config\ep64\EP_64k_Tape_NoCartridge.cfg"
   Delete "$INSTDIR\config\ep64\EP_64k_Tape_TASMON.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_32k_V12.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_32k_V22.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k_V12.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k_V22.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k_V22_FileIO.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k_V22_SDEXT.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V12.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V12_FileIO.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V12_SDEXT.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V12_UPM.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V12_VTDOS.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V22.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V22_FileIO.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V22_SDEXT.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V22_VTDOS.cfg"
+  Delete "$INSTDIR\config\tvc\TVC_64k+_V22_VTDOS_CART.cfg"
   Delete "$INSTDIR\config\zx\ZX_128k.cfg"
   Delete "$INSTDIR\config\zx\ZX_128k_FileIO.cfg"
   Delete "$INSTDIR\config\zx\ZX_16k.cfg"
   Delete "$INSTDIR\config\zx\ZX_16k_FileIO.cfg"
   Delete "$INSTDIR\config\zx\ZX_48k.cfg"
   Delete "$INSTDIR\config\zx\ZX_48k_FileIO.cfg"
+  Delete "$INSTDIR\config\zx\ZX_48k_GW03.cfg"
   RMDir "$INSTDIR\config\cpc"
   RMDir "$INSTDIR\config\ep128brd"
   RMDir "$INSTDIR\config\ep128esp"
   RMDir "$INSTDIR\config\ep128hun"
   RMDir "$INSTDIR\config\ep128uk"
   RMDir "$INSTDIR\config\ep64"
+  RMDir "$INSTDIR\config\tvc"
   RMDir "$INSTDIR\config\zx"
   RMDir "$INSTDIR\config"
   RMDir "$INSTDIR\demo"
@@ -541,13 +812,19 @@ Section "Uninstall"
   Delete "$INSTDIR\roms\cpc664.rom"
   Delete "$INSTDIR\roms\cpc_amsdos.rom"
   Delete "$INSTDIR\roms\cyrus.rom"
+  Delete "$INSTDIR\roms\edcw.rom"
   Delete "$INSTDIR\roms\ep-plus.rom"
   Delete "$INSTDIR\roms\ep128emu_roms.bin"
+  Delete "$INSTDIR\roms\ep128emu_roms-2.0.10.bin"
+  Delete "$INSTDIR\roms\ep128emu_roms-2.0.11.bin"
   Delete "$INSTDIR\roms\ep_basic.rom"
+  Delete "$INSTDIR\roms\epd17l12.rom"
+  Delete "$INSTDIR\roms\epd17z12.rom"
   Delete "$INSTDIR\roms\epdos_z.rom"
   Delete "$INSTDIR\roms\epd19hft.rom"
   Delete "$INSTDIR\roms\epd19uk.rom"
   Delete "$INSTDIR\roms\epfileio.rom"
+  Delete "$INSTDIR\roms\esb.rom"
   Delete "$INSTDIR\roms\esp.rom"
   Delete "$INSTDIR\roms\exdos0.rom"
   Delete "$INSTDIR\roms\exdos1.rom"
@@ -555,6 +832,10 @@ Section "Uninstall"
   Delete "$INSTDIR\roms\exdos13.rom"
   Delete "$INSTDIR\roms\exdos13isdos10esp.rom"
   Delete "$INSTDIR\roms\exdos13isdos10hun.rom"
+  Delete "$INSTDIR\roms\exdos14isdos10uk.rom"
+  Delete "$INSTDIR\roms\exdos14isdos10uk-brd.rom"
+  Delete "$INSTDIR\roms\exdos14isdos10uk-esp.rom"
+  Delete "$INSTDIR\roms\exdos14isdos10uk-hfont.rom"
   Delete "$INSTDIR\roms\exos0.rom"
   Delete "$INSTDIR\roms\exos1.rom"
   Delete "$INSTDIR\roms\exos20.rom"
@@ -569,6 +850,10 @@ Section "Uninstall"
   Delete "$INSTDIR\roms\exos232esp.rom"
   Delete "$INSTDIR\roms\exos232hun.rom"
   Delete "$INSTDIR\roms\exos232uk.rom"
+  Delete "$INSTDIR\roms\exos24brd.rom"
+  Delete "$INSTDIR\roms\exos24es.rom"
+  Delete "$INSTDIR\roms\exos24hu.rom"
+  Delete "$INSTDIR\roms\exos24uk.rom"
   Delete "$INSTDIR\roms\fenas12.rom"
   Delete "$INSTDIR\roms\forth.rom"
   Delete "$INSTDIR\roms\genmon.rom"
@@ -578,26 +863,57 @@ Section "Uninstall"
   Delete "$INSTDIR\roms\heassekn.rom"
   Delete "$INSTDIR\roms\hun.rom"
   Delete "$INSTDIR\roms\ide.rom"
+  Delete "$INSTDIR\roms\ide12.rom"
   Delete "$INSTDIR\roms\iview.rom"
   Delete "$INSTDIR\roms\lisp.rom"
   Delete "$INSTDIR\roms\pascal11.rom"
+  Delete "$INSTDIR\roms\pascal12.rom"
   Delete "$INSTDIR\roms\pasians.rom"
+  Delete "$INSTDIR\roms\paszians.rom"
+  Delete "$INSTDIR\roms\sdext05.rom"
   Delete "$INSTDIR\roms\tasmon0.rom"
   Delete "$INSTDIR\roms\tasmon1.rom"
   Delete "$INSTDIR\roms\tasmon15.rom"
   Delete "$INSTDIR\roms\tpt.rom"
+  Delete "$INSTDIR\roms\tvc12_ext.rom"
+  Delete "$INSTDIR\roms\tvc12_sys.rom"
+  Delete "$INSTDIR\roms\tvc21_ext.rom"
+  Delete "$INSTDIR\roms\tvc21_sys.rom"
+  Delete "$INSTDIR\roms\tvc22_ext.rom"
+  Delete "$INSTDIR\roms\tvc22_sys.rom"
+  Delete "$INSTDIR\roms\tvc_dos11c.rom"
+  Delete "$INSTDIR\roms\tvc_dos11d.rom"
+  Delete "$INSTDIR\roms\tvc_dos12c.rom"
+  Delete "$INSTDIR\roms\tvc_dos12d.rom"
+  Delete "$INSTDIR\roms\tvcfileio.rom"
+  Delete "$INSTDIR\roms\tvc_sdext.rom"
+  Delete "$INSTDIR\roms\tvcupm_c.rom"
+  Delete "$INSTDIR\roms\tvcupm_d.rom"
   Delete "$INSTDIR\roms\zt18.rom"
   Delete "$INSTDIR\roms\zt18ekn.rom"
   Delete "$INSTDIR\roms\zt18hfnt.rom"
   Delete "$INSTDIR\roms\zt18hun.rom"
   Delete "$INSTDIR\roms\zt18uk.rom"
+  Delete "$INSTDIR\roms\zt19ekn.rom"
+  Delete "$INSTDIR\roms\zt19hfnt.rom"
+  Delete "$INSTDIR\roms\zt19hun.rom"
+  Delete "$INSTDIR\roms\zt19uk.rom"
   Delete "$INSTDIR\roms\zx128.rom"
   Delete "$INSTDIR\roms\zx41.rom"
+  Delete "$INSTDIR\roms\zx41uk.rom"
   Delete "$INSTDIR\roms\zx48.rom"
+  Delete "$INSTDIR\roms\zx48gw03.rom"
   RMDir "$INSTDIR\roms"
   RMDir "$INSTDIR\snapshot"
   RMDir /r "$INSTDIR\src"
   RMDir "$INSTDIR\tape"
+
+  Delete "$DESKTOP\ep128emu.lnk"
+  Delete "$DESKTOP\zx128emu.lnk"
+  Delete "$DESKTOP\cpc6128emu.lnk"
+  Delete "$DESKTOP\tvc64emu.lnk"
+  Delete "$DESKTOP\ep128emu tape editor.lnk"
+  Delete "$DESKTOP\epimgconv.lnk"
 
   !insertmacro MUI_STARTMENU_GETFOLDER Application $MUI_TEMP
 
@@ -633,8 +949,17 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\$MUI_TEMP\CPC emulator\cpc6128emu - Software - Win2000 theme.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\CPC emulator\cpc6128emu - Software - plastic theme.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\CPC emulator\cpc6128emu - Software - Gtk+ theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - GL - default theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - GL - Win2000 theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - GL - plastic theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - GL - Gtk+ theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - Software - default theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - Software - Win2000 theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - Software - plastic theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\TVC emulator\tvc64emu - Software - Gtk+ theme.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\ep128emu - GL - Win2000 theme.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\ep128emu - GL - plastic theme.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\Image converter utility.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\README.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\Tape editor.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\Reinstall configuration files.lnk"
@@ -642,6 +967,7 @@ Section "Uninstall"
 
   RMDir "$SMPROGRAMS\$MUI_TEMP\Spectrum emulator"
   RMDir "$SMPROGRAMS\$MUI_TEMP\CPC emulator"
+  RMDir "$SMPROGRAMS\$MUI_TEMP\TVC emulator"
 
   ;Delete empty start menu parent diretories
   StrCpy $MUI_TEMP "$SMPROGRAMS\$MUI_TEMP\GUI themes"
@@ -656,8 +982,8 @@ Section "Uninstall"
     StrCmp $MUI_TEMP $SMPROGRAMS startMenuDeleteLoopDone startMenuDeleteLoop
   startMenuDeleteLoopDone:
 
-  DeleteRegKey /ifempty HKCU "Software\ep128emu2\InstallDirectory"
-  DeleteRegKey /ifempty HKCU "Software\ep128emu2"
+  DeleteRegKey /ifempty HKLM "Software\ep128emu2\InstallDirectory"
+  DeleteRegKey /ifempty HKLM "Software\ep128emu2"
 
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

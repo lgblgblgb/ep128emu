@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2009 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -25,7 +25,9 @@
 #include "system.hpp"
 #include "display.hpp"
 #include "fldisp.hpp"
-#include "gldisp.hpp"
+#ifndef DISABLE_OPENGL_DISPLAY
+#  include "gldisp.hpp"
+#endif
 #include "joystick.hpp"
 #include "soundio.hpp"
 #include "vm.hpp"

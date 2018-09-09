@@ -1,23 +1,23 @@
 # Checkout: cvs -z3 -d:pserver:anonymous@ep128emu.cvs.sourceforge.net:/cvsroot/ep128emu co -P ep128emu2
 
 Name:			ep128emu
-Version:		2.0.9.2
+Version:		2.0.11.2
 Release:		%mkrel 1
-Summary:		Enterprise 64/128, ZX Spectrum 48/128, and Amstrad CPC 464/664/6128 emulator
+Summary:		Enterprise 64/128, ZX Spectrum 48/128, Amstrad CPC 464/664/6128 and Videoton TVC emulator
 License:		GPLv2+
 Group:			Emulators
-URL:			http://sourceforge.net/projects/ep128emu
+URL:			https://github.com/istvan-v/ep128emu/
 Source0:		%{name}/%{name}-%{version}.tar.xz
 Source1:		%{name}-32.png
-%define	romname		ep128emu_roms.bin
+%define	romname		ep128emu_roms-2.0.11.bin
 Source2:		%{romname}
 BuildRequires:		libSDL-devel libgtk+2.0_0-devel
 BuildRequires:		scons libfltk-devel libportaudio2-devel libsndfile-devel liblua-devel
 BuildRoot:		%{_tmppath}/%{name}-%{version}
 
 %description
-ep128emu is a portable emulator of the Enterprise 64/128, ZX Spectrum 48/128, and Amstrad CPC 464/664/6128 computers
-http://sourceforge.net/projects/ep128emu/files/ep128emu2
+ep128emu is a portable emulator of the Enterprise 64/128, ZX Spectrum 48/128, Amstrad CPC 464/664/6128 and Videoton TVC computers
+https://github.com/istvan-v/ep128emu/releases/
 
 %prep
 %setup -q 

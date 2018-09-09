@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -141,6 +141,22 @@ namespace Ep128Emu {
      * Load epmemcfg format memory configuration file.
      */
     virtual void loadMemoryConfiguration(const std::string& fileName_);
+#ifdef ENABLE_SDEXT
+    /*!
+     * Set if SD card emulation should be enabled, and the file name
+     * of the 64 KB flash ROM image.
+     */
+    virtual void configureSDCard(bool isEnabled,
+                                 const std::string& romFileName);
+#endif
+#ifdef ENABLE_RESID
+    /*!
+     * Configure SID 'n' (0 to 3, currently only 3 is supported),
+     * 'model' can be 0 to disable the emulation, 1 for MOS 6581 or 2 for 8580.
+     */
+    virtual void setSIDConfiguration(int n, int model,
+                                     double volumeL, double volumeR);
+#endif
     /*!
      * Set audio output quality.
      */
@@ -192,6 +208,25 @@ namespace Ep128Emu {
      */
     virtual void setKeyboardState(int keyCode, bool isPressed);
     /*!
+     * Send mouse event to the emulated machine. 'dX' and 'dY' are the
+     * horizontal and vertical motion of the pointer relative to the position
+     * at the time of the previous call, positive values move to the left and
+     * up, respectively.
+     * Each bit of 'buttonState' corresponds to the current state of a mouse
+     * button (1 = pressed):
+     *   b0 = left button
+     *   b1 = right button
+     *   b2 = middle button
+     *   b3..b7 = buttons 4 to 8
+     * 'mouseWheelEvents' can be the sum of any of the following:
+     *   1: mouse wheel up
+     *   2: mouse wheel down
+     *   4: mouse wheel left
+     *   8: mouse wheel right
+     */
+    virtual void setMouseState(int8_t dX, int8_t dY,
+                               uint8_t buttonState, uint8_t mouseWheelEvents);
+    /*!
      * Returns status information about the emulated machine (see also
      * struct VMStatus above, and the comments for functions that return
      * individual status values).
@@ -221,6 +256,23 @@ namespace Ep128Emu {
      * the output file.
      */
     virtual void closeVideoCapture();
+#ifdef ENABLE_MIDI_PORT
+    /*!
+     * Send MIDI event to the emulated machine
+     * (evt = status + (data1 << 8) + (data2 << 16).
+     */
+    virtual void midiInReceiveEvent(int32_t evt);
+    /*!
+     * Receive MIDI event sent by the emulated machine, in the format
+     * status + (data1 << 8) + (data2 << 16). If no event is available,
+     * -1 is returned.
+     */
+    virtual int32_t midiOutSendEvent();
+    /*!
+     * Set MIDI device type: 0 = none (default), 1 = input, 2 = output.
+     */
+    virtual void midiSetDeviceType(int t);
+#endif
     // -------------------------- DISK AND FILE I/O ---------------------------
     /*!
      * Load disk image for drive 'n' (counting from zero; 0 to 3 are floppy
@@ -244,10 +296,16 @@ namespace Ep128Emu {
      *   0x00020000: floppy drive 2 green LED is on
      *   0x00040000: IDE drive 2 red LED is on (low priority)
      *   0x000C0000: IDE drive 2 red LED is on (high priority)
+     *   0x00100000: SD card 1 blue LED is on (low priority)
+     *   0x00200000: SD card 1 blue LED is on (high priority)
+     *   0x00300000: SD card 1 cyan LED is on (high priority)
      *   0x01000000: floppy drive 3 red LED is on
      *   0x02000000: floppy drive 3 green LED is on
      *   0x04000000: IDE drive 3 red LED is on (low priority)
      *   0x0C000000: IDE drive 3 red LED is on (high priority)
+     *   0x10000000: SD card 2 blue LED is on (low priority)
+     *   0x20000000: SD card 2 blue LED is on (high priority)
+     *   0x30000000: SD card 2 cyan LED is on (high priority)
      */
     virtual uint32_t getFloppyDriveLEDState();
     /*!
@@ -647,12 +705,12 @@ namespace Ep128Emu {
      * lower case, invalid characters are replaced with underscores, and the
      * file is searched case-insensitively. If 'fileName_' is empty, the file
      * name callback (if any) is called, which should return either a full path
-     * file name that will be stored in 'fileName_', or an empty string in
-     * which case this function fails and returns -2 (invalid file name).
+     * file name, or an empty string in which case this function fails and
+     * returns -2 (invalid file name).
      * 'mode' is the mode parameter to be passed to std::fopen().
-     * On success, the file handle is stored in 'f', and zero is returned.
-     * Otherwise, 'f' is set to NULL, and the return value is one of the
-     * following error codes:
+     * On success, the file handle is stored in 'f', the full path file name in
+     * 'fileName_', and zero is returned. Otherwise, 'f' is set to NULL, and
+     * the return value is one of the following error codes:
      *   -1: unknown error
      *   -2: invalid (empty) file name
      *   -3: the file is not found

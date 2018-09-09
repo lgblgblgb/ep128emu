@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://sourceforge.net/projects/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,6 +28,16 @@
 
 #include <stdio.h>
 #include "dotconf.h"
+
+#ifdef WIN32
+extern "C" {
+  // C wrapper for dotconf.c
+  std::FILE *Ep128Emu_fileOpen(const char *name, const char *mode)
+  {
+    return Ep128Emu::fileOpen(name, mode);
+  }
+}
+#endif
 
 namespace Ep128Emu {
 
@@ -700,7 +710,7 @@ namespace Ep128Emu {
 #endif
     }
     fullName += fileName;
-    std::FILE *f = std::fopen(fullName.c_str(), "w");
+    std::FILE *f = fileOpen(fullName.c_str(), "w");
     if (!f)
       throw Exception("error opening configuration file");
     bool  err = false;
@@ -792,7 +802,7 @@ namespace Ep128Emu {
       options.push_back(tmp);
     }
     {
-      configoption_t  tmp = LAST_OPTION;
+      configoption_t  tmp = LAST_CONTEXT_OPTION;
       options.push_back(tmp);
     }
     configfile_t  *cfgFile = dotconf_create(

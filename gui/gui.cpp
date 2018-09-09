@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,9 +21,14 @@
 #include "guicolor.hpp"
 #include "ep128vm.hpp"
 #include "zx128vm.hpp"
+#include "cpc464vm.hpp"
+#include "pngwrite.hpp"
 
 #include <typeinfo>
 
+#ifdef LINUX_FLTK_VERSION
+#  undef LINUX_FLTK_VERSION
+#endif
 #ifdef WIN32
 #  define WIN32_LEAN_AND_MEAN   1
 #  include <windows.h>
@@ -31,6 +36,19 @@
 #  include <unistd.h>
 #  include <pthread.h>
 #endif
+#if defined(__linux) || defined(__linux__)
+#  include <X11/Xlib.h>
+#  if defined(FL_MAJOR_VERSION) && defined(FL_MINOR_VERSION) && \
+      defined(FL_PATCH_VERSION)
+#    define LINUX_FLTK_VERSION  ((FL_MAJOR_VERSION * 10000)     \
+                                 + (FL_MINOR_VERSION * 100) + FL_PATCH_VERSION)
+#    if (LINUX_FLTK_VERSION >= 10302)
+#      include <X11/XKBlib.h>
+#    endif
+#  endif
+#endif
+
+#include <FL/x.H>
 
 void Ep128EmuGUI::init_()
 {
@@ -77,6 +95,13 @@ void Ep128EmuGUI::init_()
   debugWindow = (Ep128EmuGUI_DebugWindow *) 0;
   aboutWindow = (Ep128EmuGUI_AboutWindow *) 0;
   savedSpeedPercentage = 0U;
+  mouseXScale = 1.0f;
+  mouseYScale = 1.0f;
+  mouseXMin = 0;
+  mouseYMin = 0;
+  prvMouseXPos = -32768;
+  prvMouseYPos = -32768;
+  prvMouseButtonState = 0xFF;
   std::string defaultDir_(".");
   snapshotDirectory = defaultDir_;
   demoDirectory = defaultDir_;
@@ -106,10 +131,10 @@ void Ep128EmuGUI::init_()
 void Ep128EmuGUI::updateDisplay_windowTitle()
 {
   if (oldPauseFlag) {
-    std::sprintf(&(windowTitleBuf[0]), "ep128emu 2.0.9.2 (paused)");
+    std::sprintf(&(windowTitleBuf[0]), "ep128emu 2.0.11.2 (paused)");
   }
   else {
-    std::sprintf(&(windowTitleBuf[0]), "ep128emu 2.0.9.2 (%d%%)",
+    std::sprintf(&(windowTitleBuf[0]), "ep128emu 2.0.11.2 (%d%%)",
                  int(oldSpeedPercentage));
   }
   mainWindow->label(&(windowTitleBuf[0]));
@@ -150,10 +175,7 @@ void Ep128EmuGUI::updateDisplay_windowMode()
   oldWindowWidth = -1;
   oldWindowHeight = -1;
   oldDisplayMode = displayMode;
-  if ((displayMode & 1) == 0)
-    emulatorWindow->cursor(FL_CURSOR_DEFAULT);
-  else
-    emulatorWindow->cursor(FL_CURSOR_NONE);
+  mainWindow->cursor(!(displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
   mainWindow->redraw();
   mainMenuBar->redraw();
   diskStatusDisplayGroup->redraw();
@@ -164,33 +186,58 @@ void Ep128EmuGUI::updateDisplay_windowSize()
 {
   int     newWindowWidth = mainWindow->w();
   int     newWindowHeight = mainWindow->h();
-  if ((displayMode & 1) == 0) {
-    int   h = newWindowHeight - (newWindowWidth >= 745 ? 30 : 60);
-    emulatorWindow->resize(0, 30, newWindowWidth, h);
-    if ((displayMode & 2) == 0) {
-      config.display.width = newWindowWidth;
-      config.display.height = h;
+  if (newWindowWidth != oldWindowWidth || newWindowHeight != oldWindowHeight) {
+    if ((displayMode & 1) == 0) {
+      int   h = newWindowHeight - (newWindowWidth >= 745 ? 30 : 60);
+      emulatorWindow->resize(0, 30, newWindowWidth, h);
+      if ((displayMode & 2) == 0) {
+        config.display.width = newWindowWidth;
+        config.display.height = h;
+      }
+      statusDisplayGroup->resize(newWindowWidth - 360,
+                                 (newWindowWidth >= 745 ?
+                                  0 : (newWindowHeight - 30)),
+                                 360, 30);
+      mainMenuBar->resize(0, 2, 300, 26);
+      diskStatusDisplayGroup->resize(345, 0, 30, 30);
     }
-    statusDisplayGroup->resize(newWindowWidth - 360,
-                               (newWindowWidth >= 745 ?
-                                0 : (newWindowHeight - 30)),
-                               360, 30);
-    mainMenuBar->resize(0, 2, 300, 26);
-    diskStatusDisplayGroup->resize(345, 0, 30, 30);
-  }
-  else {
-    emulatorWindow->resize(0, 0, newWindowWidth, newWindowHeight);
-    if ((displayMode & 2) == 0) {
-      config.display.width = newWindowWidth;
-      config.display.height = newWindowHeight;
+    else {
+      emulatorWindow->resize(0, 0, newWindowWidth, newWindowHeight);
+      if ((displayMode & 2) == 0) {
+        config.display.width = newWindowWidth;
+        config.display.height = newWindowHeight;
+      }
     }
+    oldWindowWidth = newWindowWidth;
+    oldWindowHeight = newWindowHeight;
+    mainWindow->redraw();
+    mainMenuBar->redraw();
+    diskStatusDisplayGroup->redraw();
+    statusDisplayGroup->redraw();
   }
-  oldWindowWidth = newWindowWidth;
-  oldWindowHeight = newWindowHeight;
-  mainWindow->redraw();
-  mainMenuBar->redraw();
-  diskStatusDisplayGroup->redraw();
-  statusDisplayGroup->redraw();
+  {
+    // update mouse coordinate translation parameters
+    float   w = float(emulatorWindow->w());
+    float   h = float(emulatorWindow->h());
+    if ((w * config.display.pixelAspectRatio / h) < 1.333333f) {
+      // aspect ratio < 4:3, using full window width
+      mouseXScale = 384.0f / w;
+      mouseYScale = mouseXScale / config.display.pixelAspectRatio;
+      mouseXScale *= float(config.mouse.sensitivityX);
+      mouseYScale *= float(config.mouse.sensitivityY);
+    }
+    else {
+      // aspect ratio >= 4:3, using full window height
+      mouseYScale = 288.0f / h;
+      mouseXScale = mouseYScale * config.display.pixelAspectRatio;
+      mouseYScale *= float(config.mouse.sensitivityY);
+      mouseXScale *= float(config.mouse.sensitivityX);
+    }
+    mouseXMin = int(w * (displayMode == 3 ? 24.0f : 16.0f) / 384.0f + 0.5f);
+    mouseYMin = int(h * (displayMode == 3 ? 24.0f : 16.0f) / 288.0f + 0.5f);
+    prvMouseXPos = -32768;
+    prvMouseYPos = -32768;
+  }
 }
 
 void Ep128EmuGUI::updateDisplay(double t)
@@ -328,19 +375,28 @@ void Ep128EmuGUI::updateDisplay(double t)
   uint32_t  newFloppyDriveLEDState = vmThreadStatus.floppyDriveLEDState;
   if (newFloppyDriveLEDState != oldFloppyDriveLEDState) {
     oldFloppyDriveLEDState = newFloppyDriveLEDState;
-    static const Fl_Color ledColors_[16] = {
-      FL_BLACK,      Fl_Color(92),  FL_GREEN,      Fl_Color(87),
-      Fl_Color(128), Fl_Color(92),  FL_GREEN,      Fl_Color(87),
-      FL_BLACK,      Fl_Color(92),  FL_GREEN,      Fl_Color(87),
-      Fl_Color(128), Fl_Color(128), Fl_Color(128), Fl_Color(128)
+    // FLTK color (5*8*5 RGB) = 56 + 8*R(0..4) + G(0..7) + 40*B(0..4)
+    static const unsigned char ledColors_[64] = {
+       56,  92,  63,  87,  128,  92,  63,  87,
+       56,  92,  63,  87,  128, 128, 128, 128,
+      236,  92,  63,  87,  128,  92,  63,  87,
+      236,  92,  63,  87,  128, 128, 128, 128,
+      236, 236, 236, 236,  236, 236, 236, 236,
+      236, 236, 236, 236,  236, 236, 236, 236,
+      239, 239, 239, 239,  239, 239, 239, 239,
+      239, 239, 239, 239,  239, 239, 239, 239
     };
-    driveALEDDisplay->color(ledColors_[newFloppyDriveLEDState & 0x0FU]);
+    driveALEDDisplay->color(
+        Fl_Color(ledColors_[newFloppyDriveLEDState & 0x0FU]));
     driveALEDDisplay->redraw();
-    driveBLEDDisplay->color(ledColors_[(newFloppyDriveLEDState >> 8) & 0x0FU]);
+    driveBLEDDisplay->color(
+        Fl_Color(ledColors_[(newFloppyDriveLEDState >> 8) & 0x0FU]));
     driveBLEDDisplay->redraw();
-    driveCLEDDisplay->color(ledColors_[(newFloppyDriveLEDState >> 16) & 0x0FU]);
+    driveCLEDDisplay->color(
+        Fl_Color(ledColors_[(newFloppyDriveLEDState >> 16) & 0x3FU]));
     driveCLEDDisplay->redraw();
-    driveDLEDDisplay->color(ledColors_[(newFloppyDriveLEDState >> 24) & 0x0FU]);
+    driveDLEDDisplay->color(
+        Fl_Color(ledColors_[(newFloppyDriveLEDState >> 24) & 0x3FU]));
     driveDLEDDisplay->redraw();
   }
   if (statsTimer.getRealTime() >= 0.5) {
@@ -430,17 +486,52 @@ int Ep128EmuGUI::getMenuItemIndex(int n)
 
 void Ep128EmuGUI::createMenus()
 {
+#if defined(LINUX_FLTK_VERSION) && (LINUX_FLTK_VERSION >= 10302)
   {
-    int     iconNum = (typeid(vm) == typeid(Ep128::Ep128VM) ?
-                       0 : (typeid(vm) == typeid(ZX128::ZX128VM) ? 1 : 2));
-    Ep128Emu::setWindowIcon(mainWindow, iconNum);
-    Ep128Emu::setWindowIcon(diskConfigWindow->window, iconNum);
-    Ep128Emu::setWindowIcon(displaySettingsWindow->window, iconNum);
-    Ep128Emu::setWindowIcon(keyboardConfigWindow->window, iconNum);
-    Ep128Emu::setWindowIcon(machineConfigWindow->window, iconNum);
+    // work around broken auto-repeat on Linux
+    Bool    supportedReturn = False;
+    (void) XkbSetDetectableAutoRepeat(fl_display, True, &supportedReturn);
   }
+#endif
+  int     iconNum = (typeid(vm) == typeid(Ep128::Ep128VM) ?
+                     0 : (typeid(vm) == typeid(ZX128::ZX128VM) ?
+                          1 : (typeid(vm) == typeid(CPC464::CPC464VM) ?
+                               2 : 3)));
+  Ep128Emu::setWindowIcon(mainWindow, iconNum);
+  Ep128Emu::setWindowIcon(diskConfigWindow->window, iconNum);
+  Ep128Emu::setWindowIcon(displaySettingsWindow->window, iconNum);
+  Ep128Emu::setWindowIcon(keyboardConfigWindow->window, iconNum);
+  Ep128Emu::setWindowIcon(machineConfigWindow->window, iconNum);
   Ep128Emu::setWindowIcon(aboutWindow->window, 10);
   Ep128Emu::setWindowIcon(errorMessageWindow, 12);
+  // hide configuration widgets that are not useful on the given machine
+  // or emulator build
+#ifdef ENABLE_SDEXT
+  if (iconNum >= 1 && iconNum <= 2)     // Spectrum or CPC
+#endif
+  {
+    machineConfigWindow->vmEnableSDExtValuator->hide();
+    machineConfigWindow->vmEnableFileIOValuator->resize(30, 248, 250, 25);
+    machineConfigWindow->sdExtROMFileNameValuator->hide();
+    machineConfigWindow->sdExtROMFileNameButton->hide();
+#ifndef ENABLE_SDEXT
+    diskConfigWindow->ideConfigGroup->label("IDE");
+    diskConfigWindow->sdCardImageGroup->hide();
+#endif
+  }
+  if (iconNum != 0) {                   // not Enterprise
+    machineConfigWindow->vmCPUFrequencyValuator->deactivate();
+    machineConfigWindow->vmSoundClockFrequencyValuator->deactivate();
+    machineConfigWindow->enableMemoryTimingValuator->hide();
+#ifndef ENABLE_RESID
+  }
+  {
+#endif
+    machineConfigWindow->sidConfigurationGroup->deactivate();
+    machineConfigWindow->sidConfigurationGroup->hide();
+    machineConfigWindow->vmConfigurationTabs->remove(
+        *(machineConfigWindow->sidConfigurationGroup));
+  }
   mainMenuBar->add("File/Configuration/Load from ASCII file (Alt+Q)",
                    (char *) 0, &menuCallback_File_LoadConfig, (void *) this);
   mainMenuBar->add("File/Configuration/Load from binary file (Alt+L)",
@@ -559,7 +650,7 @@ void Ep128EmuGUI::createMenus()
                    (char *) 0, &menuCallback_Options_SndDecVol, (void *) this);
   mainMenuBar->add("Options/Sound/Configure... (Alt+U)",
                    (char *) 0, &menuCallback_Options_SndConfig, (void *) this);
-  if (typeid(vm) != typeid(ZX128::ZX128VM)) {
+  if (iconNum != 1) {                   // not Spectrum
     mainMenuBar->add("Options/Disk/Remove floppy/Drive A", (char *) 0,
                      &menuCallback_Options_FloppyRmA, (void *) this);
     mainMenuBar->add("Options/Disk/Remove floppy/Drive B", (char *) 0,
@@ -716,10 +807,89 @@ void Ep128EmuGUI::resizeWindow(int w, int h)
     else
       mainWindow->size_range(384, 288, 1536, 1152);
   }
-  if ((displayMode & 1) == 0)
-    emulatorWindow->cursor(FL_CURSOR_DEFAULT);
-  else
-    emulatorWindow->cursor(FL_CURSOR_NONE);
+  mainWindow->cursor(!(displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
+}
+
+void Ep128EmuGUI::sendMouseEvent(bool enableButtons, bool mouseWheelEvent)
+{
+  int     xPos = Fl::event_x();
+  int     yPos = Fl::event_y();
+  uint8_t edgeFlags = (xPos < (emulatorWindow->w() - mouseXMin) ? 0x00 : 0x08)
+                      | (xPos >= mouseXMin ? 0x00 : 0x04)
+                      | (yPos < (emulatorWindow->h() - mouseYMin) ? 0x00 : 0x02)
+                      | (yPos >= mouseYMin ? 0x00 : 0x01);
+  xPos = int(float(xPos) * mouseXScale + 0.5f);
+  yPos = int(float(yPos) * mouseYScale + 0.5f);
+  uint8_t buttonState = 0x00;
+  uint8_t mouseWheelEvents = 0x00;
+  if (enableButtons) {
+    int     tmp = Fl::event_buttons();
+    if (tmp & FL_BUTTONS) {
+      buttonState = ((tmp & FL_BUTTON(FL_LEFT_MOUSE)) ? 0x01 : 0x00)
+                    | ((tmp & FL_BUTTON(FL_RIGHT_MOUSE)) ? 0x02 : 0x00)
+                    | ((tmp & FL_BUTTON(FL_MIDDLE_MOUSE)) ? 0x04 : 0x00)
+                    | ((tmp & FL_BUTTON(4)) ? 0x08 : 0x00)
+                    | ((tmp & FL_BUTTON(5)) ? 0x10 : 0x00);
+    }
+  }
+  if (mouseWheelEvent) {
+    int     dX = Fl::event_dx();
+    int     dY = Fl::event_dy();
+    if (dY < 0)
+      mouseWheelEvents = mouseWheelEvents | 0x01;
+    else if (dY > 0)
+      mouseWheelEvents = mouseWheelEvents | 0x02;
+    if (dX < 0)
+      mouseWheelEvents = mouseWheelEvents | 0x04;
+    else if (dX > 0)
+      mouseWheelEvents = mouseWheelEvents | 0x08;
+  }
+  int     dX =
+      (EP128EMU_EXPECT(prvMouseXPos != -32768) ? (prvMouseXPos - xPos) : 0);
+  int     dY =
+      (EP128EMU_EXPECT(prvMouseYPos != -32768) ? (prvMouseYPos - yPos) : 0);
+  prvMouseXPos = xPos;
+  prvMouseYPos = yPos;
+  if (edgeFlags) {
+    // if the pointer is near the edges of the emulator window:
+#if defined(__linux) || defined(__linux__) || defined(WIN32)
+    if (displayMode == 3 && Fl::focus() == emulatorWindow) {
+      // in full screen mode with no menu bar, if the emulator window has the
+      // focus, then warp the pointer to the center of the screen
+      prvMouseXPos = -32768;
+      prvMouseYPos = -32768;
+#  ifdef WIN32
+      SetCursorPos(emulatorWindow->w() >> 1, emulatorWindow->h() >> 1);
+#  else
+      XWarpPointer(fl_display, None, fl_xid(emulatorWindow), 0, 0, 0, 0,
+                   emulatorWindow->w() >> 1, emulatorWindow->h() >> 1);
+      XSync(fl_display, False);
+#  endif
+      prvMouseXPos = -32768;
+      prvMouseYPos = -32768;
+    }
+    else
+#endif
+    {
+      // otherwise, simulate fast motion towards the edges
+      if ((edgeFlags & 0x04) && dX < 16)
+        dX = 16;
+      else if ((edgeFlags & 0x08) && dX > -16)
+        dX = -16;
+      if ((edgeFlags & 0x01) && dY < 16)
+        dY = 16;
+      else if ((edgeFlags & 0x02) && dY > -16)
+        dY = -16;
+    }
+  }
+  if ((dX | dY | int(mouseWheelEvents)) == 0 &&
+      buttonState == prvMouseButtonState) {
+    return;
+  }
+  dX = (dX > -128 ? (dX < 127 ? dX : 127) : -128);
+  dY = (dY > -128 ? (dY < 127 ? dY : 127) : -128);
+  prvMouseButtonState = buttonState;
+  vmThread.setMouseState(int8_t(dX), int8_t(dY), buttonState, mouseWheelEvents);
 }
 
 int Ep128EmuGUI::handleFLTKEvent(void *userData, int event)
@@ -737,11 +907,20 @@ int Ep128EmuGUI::handleFLTKEvent(void *userData, int event)
       gui_.errorMessage(e.what());
     }
     return 1;
+  case FL_ENTER:
+  case FL_LEAVE:
+    return 1;
+  case FL_MOVE:
+    gui_.sendMouseEvent(false, false);
+    return 1;
+  case FL_MOUSEWHEEL:
+    gui_.sendMouseEvent(true, true);
+    return 1;
   case FL_PUSH:
   case FL_DRAG:
     gui_.emulatorWindow->take_focus();
-    return 1;
   case FL_RELEASE:
+    gui_.sendMouseEvent(true, false);
     return 1;
   case FL_KEYUP:
   case FL_KEYDOWN:
@@ -1006,6 +1185,11 @@ bool Ep128EmuGUI::browseFile(std::string& fileName, std::string& dirName,
     }
     fileName.clear();
     browseFileStatus = 1;
+#if defined(LINUX_FLTK_VERSION) && (LINUX_FLTK_VERSION >= 10303)
+    // work around buggy GTK file chooser introduced in FLTK 1.3.3
+    // not sending FL_UNFOCUS event to the emulator window
+    handleFLTKEvent(this, FL_UNFOCUS);
+#endif
     if (currentThreadID != mainThreadID) {
       browseFileWindowShowFlag = true;
       do {
@@ -1058,6 +1242,30 @@ bool Ep128EmuGUI::browseFile(std::string& fileName, std::string& dirName,
   return retval;
 }
 
+void Ep128EmuGUI::writeFile(Ep128Emu::File& f, const char *fileName)
+{
+  if (!config.compressFiles) {
+    f.writeFile(fileName);
+    return;
+  }
+  try {
+    mainWindow->label("Compressing file...");
+    mainWindow->cursor(FL_CURSOR_WAIT);
+    Fl::redraw();
+    // should actually use Fl::flush() here, but only Fl::wait() does
+    // correctly update the display
+    Fl::wait(0.0);
+    f.writeFile(fileName, false, true);
+  }
+  catch (...) {
+    mainWindow->label(&(windowTitleBuf[0]));
+    mainWindow->cursor(!(displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
+    throw;
+  }
+  mainWindow->label(&(windowTitleBuf[0]));
+  mainWindow->cursor(!(displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
+}
+
 void Ep128EmuGUI::applyEmulatorConfiguration(bool updateWindowFlag_)
 {
   if (lockVMThread()) {
@@ -1088,6 +1296,7 @@ void Ep128EmuGUI::applyEmulatorConfiguration(bool updateWindowFlag_)
       }
       if (updateMenuFlag_)
         updateMenu();
+      updateDisplay_windowSize();
     }
     catch (...) {
       unlockVMThread();
@@ -1149,170 +1358,41 @@ void Ep128EmuGUI::fltkCheckCallback(void *userData)
   }
 }
 
-size_t Ep128EmuGUI::rleCompressLine(unsigned char *outBuf,
-                                    const unsigned char *inBuf, size_t width)
-{
-  unsigned char   rleLengths[1024];
-  unsigned char   rleLength = 0;
-  unsigned char   rleByte = 0x00;
-  for (size_t i = width; i-- > 0; ) {
-    if (inBuf[i] == rleByte) {
-      if (rleLength < 255)
-        rleLength++;
-    }
-    else {
-      rleLength = 1;
-      rleByte = inBuf[i];
-    }
-    rleLengths[i] = rleLength;
-  }
-  unsigned short  compressedSizes[256];
-  unsigned char   literalLengths[1024];
-  compressedSizes[width & 255] = 2;
-  for (size_t i = width; i-- > 0; ) {
-    size_t  k = rleLengths[i];
-    size_t  l = 0;
-    size_t  bestSize = size_t(compressedSizes[(i + k) & 255]) + 2;
-    if (k < 2) {
-      size_t  m = width - i;
-      if (m > 255)
-        m = 255;
-      for (size_t j = 3; j <= m; j++) {
-        size_t  tmp =
-            size_t(compressedSizes[(i + j) & 255]) + ((j + 3) & (~(size_t(1))));
-        if (tmp <= bestSize) {
-          l = j;
-          bestSize = tmp;
-        }
-        else if (tmp > (bestSize + 3)) {
-          break;
-        }
-      }
-    }
-    compressedSizes[i & 255] = (unsigned short) bestSize;
-    literalLengths[i] = (unsigned char) l;
-  }
-  size_t  j = 0;
-  for (size_t i = 0; i < width; ) {
-    unsigned char l = literalLengths[i];
-    if (!l) {
-      l = rleLengths[i];
-      outBuf[j++] = l;
-      outBuf[j++] = inBuf[i];
-      i += size_t(l);
-    }
-    else {
-      outBuf[j++] = 0x00;
-      outBuf[j++] = l;
-      do {
-        outBuf[j++] = inBuf[i++];
-      } while (--l);
-      if (j & 1)
-        outBuf[j++] = 0x00;
-    }
-  }
-  outBuf[j++] = 0x00;                   // end of line
-  outBuf[j++] = 0x00;
-  return j;
-}
-
 void Ep128EmuGUI::screenshotCallback(void *userData,
                                      const unsigned char *buf, int w_, int h_)
 {
   Ep128EmuGUI&  gui_ = *(reinterpret_cast<Ep128EmuGUI *>(userData));
   std::string   fName;
-  std::FILE     *f = (std::FILE *) 0;
   try {
     fName = gui_.screenshotFileName;
-    if (!gui_.browseFile(fName, gui_.screenshotDirectory, "BMP files\t*.bmp",
+    if (!gui_.browseFile(fName, gui_.screenshotDirectory, "PNG files\t*.png",
                          Fl_Native_File_Chooser::BROWSE_SAVE_FILE,
                          "Save screenshot"))
       return;
-    Ep128Emu::addFileNameExtension(fName, "bmp");
+    Ep128Emu::addFileNameExtension(fName, "png");
     gui_.screenshotFileName = fName;
-    f = std::fopen(fName.c_str(), "wb");
-    if (!f)
-      throw Ep128Emu::Exception("error opening screenshot file");
-    unsigned char tmpBuf[1078];
-    for (int i = 0; i < 54; i++)
-      tmpBuf[i] = 0x00;
-    for (int i = 0; i < 1024; i += 4) {         // palette:
-      tmpBuf[i + 54] = buf[(i >> 2) * 3 + 2];   // B
-      tmpBuf[i + 55] = buf[(i >> 2) * 3 + 1];   // G
-      tmpBuf[i + 56] = buf[(i >> 2) * 3];       // R
-      tmpBuf[i + 57] = 0x00;                    // unused
+    try {
+      gui_.mainWindow->label("Saving screenshot...");
+      gui_.mainWindow->cursor(FL_CURSOR_WAIT);
+      Fl::redraw();
+      // should actually use Fl::flush() here, but only Fl::wait() does
+      // correctly update the display
+      Fl::wait(0.0);
+      Ep128Emu::writePNGImage(fName.c_str(), buf, w_, h_, 256, true, 32768);
     }
-    if (std::fwrite(&(tmpBuf[0]), sizeof(unsigned char), 1078, f) != 1078) {
-      throw Ep128Emu::Exception("error writing screenshot file "
-                                "- is the disk full ?");
+    catch (...) {
+      gui_.mainWindow->label(&(gui_.windowTitleBuf[0]));
+      gui_.mainWindow->cursor(
+          !(gui_.displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
+      throw;
     }
-    size_t  compressedSize = 0;
-    for (int yc = h_; yc-- > 0; ) {
-      // RLE encode line
-      size_t  nBytes = rleCompressLine(&(tmpBuf[0]),
-                                       &(buf[(yc * w_) + 768]), size_t(w_));
-      if (yc == 0) {
-        tmpBuf[nBytes++] = 0x00;        // end of file
-        tmpBuf[nBytes++] = 0x01;
-      }
-      compressedSize += nBytes;
-      if (std::fwrite(&(tmpBuf[0]), sizeof(unsigned char), nBytes, f)
-          != nBytes) {
-        throw Ep128Emu::Exception("error writing screenshot file "
-                                  "- is the disk full ?");
-      }
-    }
-    if (std::fseek(f, 0L, SEEK_SET) < 0)
-      throw Ep128Emu::Exception("error writing screenshot file header");
-    for (int i = 0; i < 54; i++)
-      tmpBuf[i] = 0x00;
-    tmpBuf[0] = 0x42;                   // 'B'
-    tmpBuf[1] = 0x4D;                   // 'M'
-    tmpBuf[2] = (unsigned char) ((compressedSize + 1078) & 0xFF);
-    tmpBuf[3] = (unsigned char) (((compressedSize + 1078) >> 8) & 0xFF);
-    tmpBuf[4] = (unsigned char) ((compressedSize + 1078) >> 16);
-    tmpBuf[10] = 0x36;                  // bitmap data offset (1078) LSB
-    tmpBuf[11] = 0x04;                  // bitmap data offset (1078) MSB
-    tmpBuf[14] = 0x28;                  // size of BITMAPINFOHEADER
-    tmpBuf[18] = (unsigned char) (w_ & 0xFF);   // image width
-    tmpBuf[19] = (unsigned char) (w_ >> 8);
-    tmpBuf[22] = (unsigned char) (h_ & 0xFF);   // image height
-    tmpBuf[23] = (unsigned char) (h_ >> 8);
-    tmpBuf[26] = 0x01;                  // biPlanes
-    tmpBuf[28] = 0x08;                  // biBitCount
-    tmpBuf[30] = 0x01;                  // biCompression: BI_RLE8
-    tmpBuf[34] = (unsigned char) (compressedSize & 0xFF);   // bitmap data size
-    tmpBuf[35] = (unsigned char) ((compressedSize >> 8) & 0xFF);
-    tmpBuf[36] = (unsigned char) (compressedSize >> 16);
-    tmpBuf[38] = 0x13;                  // biXPelsPerMeter (72 dpi)
-    tmpBuf[39] = 0x0B;
-    tmpBuf[42] = 0x13;                  // biYPelsPerMeter (72 dpi)
-    tmpBuf[43] = 0x0B;
-    tmpBuf[47] = 0x01;                  // biClrUsed (256) MSB
-    tmpBuf[51] = 0x01;                  // biClrImportant (256) MSB
-    if (std::fwrite(&(tmpBuf[0]), sizeof(unsigned char), 54, f) != 54)
-      throw Ep128Emu::Exception("error writing screenshot file header");
+    gui_.mainWindow->label(&(gui_.windowTitleBuf[0]));
+    gui_.mainWindow->cursor(
+        !(gui_.displayMode & 1) ? FL_CURSOR_DEFAULT : FL_CURSOR_NONE);
   }
   catch (std::exception& e) {
-    if (f) {
-      std::fclose(f);
-      f = (std::FILE *) 0;
-      if (fName.length() > 0)
-        std::remove(fName.c_str());
-    }
     gui_.errorMessage(e.what());
   }
-  catch (...) {
-    if (f) {
-      std::fclose(f);
-      f = (std::FILE *) 0;
-      if (fName.length() > 0)
-        std::remove(fName.c_str());
-    }
-    throw;
-  }
-  if (f)
-    std::fclose(f);
 }
 
 void Ep128EmuGUI::pollJoystickInput(void *userData)
@@ -1336,42 +1416,38 @@ void Ep128EmuGUI::pollJoystickInput(void *userData)
 
 bool Ep128EmuGUI::closeDemoFile(bool stopDemo_)
 {
-  if (demoRecordFile) {
-    if (stopDemo_) {
-      if (lockVMThread()) {
-        try {
-          vm.stopDemo();
-        }
-        catch (std::exception& e) {
-          unlockVMThread();
-          delete demoRecordFile;
-          demoRecordFile = (Ep128Emu::File *) 0;
-          demoRecordFileName.clear();
-          errorMessage(e.what());
-          return true;
-        }
-        catch (...) {
-          unlockVMThread();
-          delete demoRecordFile;
-          demoRecordFile = (Ep128Emu::File *) 0;
-          demoRecordFileName.clear();
-          throw;
-        }
-        unlockVMThread();
-      }
-      else
-        return false;
-    }
+  if (!demoRecordFile)
+    return true;
+  if (stopDemo_ && !lockVMThread())
+    return false;
+  std::string     fName(demoRecordFileName);
+  demoRecordFileName.clear();
+  Ep128Emu::File  *f = demoRecordFile;
+  demoRecordFile = (Ep128Emu::File *) 0;
+  if (stopDemo_) {
     try {
-      demoRecordFile->writeFile(demoRecordFileName.c_str());
+      vm.stopDemo();
     }
     catch (std::exception& e) {
+      unlockVMThread();
+      delete f;
       errorMessage(e.what());
+      return true;
     }
-    delete demoRecordFile;
-    demoRecordFile = (Ep128Emu::File *) 0;
+    catch (...) {
+      unlockVMThread();
+      delete f;
+      throw;
+    }
+    unlockVMThread();
   }
-  demoRecordFileName.clear();
+  try {
+    writeFile(*f, fName.c_str());
+  }
+  catch (std::exception& e) {
+    errorMessage(e.what());
+  }
+  delete f;
   return true;
 }
 
@@ -1382,8 +1458,10 @@ void Ep128EmuGUI::saveQuickConfig(int n)
     fName = (n == 1 ? "epvmcfg1.cfg" : "epvmcfg2.cfg");
   else if (typeid(vm) == typeid(ZX128::ZX128VM))
     fName = (n == 1 ? "zxvmcfg1.cfg" : "zxvmcfg2.cfg");
-  else
+  else if (typeid(vm) == typeid(CPC464::CPC464VM))
     fName = (n == 1 ? "cpvmcfg1.cfg" : "cpvmcfg2.cfg");
+  else
+    fName = (n == 1 ? "tvvmcfg1.cfg" : "tvvmcfg2.cfg");
   try {
     Ep128Emu::ConfigurationDB tmpCfg;
     tmpCfg.createKey("vm.cpuClockFrequency", config.vm.cpuClockFrequency);
@@ -1476,11 +1554,13 @@ void Ep128EmuGUI::menuCallback_File_SaveMainCfg(Fl_Widget *o, void *v)
   try {
     Ep128Emu::File  f;
     gui_.config.saveState(f);
-    const char  *fName = "cpc_cfg.dat";
+    const char  *fName = "tvc_cfg.dat";
     if (typeid(gui_.vm) == typeid(Ep128::Ep128VM))
       fName = "ep128cfg.dat";
     else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
       fName = "zx128cfg.dat";
+    else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
+      fName = "cpc_cfg.dat";
     f.writeFile(fName, true);
   }
   catch (std::exception& e) {
@@ -1493,11 +1573,13 @@ void Ep128EmuGUI::menuCallback_File_RevertCfg(Fl_Widget *o, void *v)
   (void) o;
   Ep128EmuGUI&  gui_ = *(reinterpret_cast<Ep128EmuGUI *>(v));
   try {
-    const char  *fName = "cpc_cfg.dat";
+    const char  *fName = "tvc_cfg.dat";
     if (typeid(gui_.vm) == typeid(Ep128::Ep128VM))
       fName = "ep128cfg.dat";
     else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
       fName = "zx128cfg.dat";
+    else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
+      fName = "cpc_cfg.dat";
     Ep128Emu::File  f(fName, true);
     gui_.config.registerChunkType(f);
     f.processAllChunks();
@@ -1542,8 +1624,10 @@ void Ep128EmuGUI::menuCallback_File_QSLoad(Fl_Widget *o, void *v)
             fName = "qs_ep128.dat";
           else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
             fName = "qs_zx128.dat";
-          else
+          else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
             fName = "qs_cpc.dat";
+          else
+            fName = "qs_tvc.dat";
           useHomeDirectory = true;
         }
         Ep128Emu::File  f(fName, useHomeDirectory);
@@ -1576,8 +1660,10 @@ void Ep128EmuGUI::menuCallback_File_QSSave(Fl_Widget *o, void *v)
             fName = "qs_ep128.dat";
           else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
             fName = "qs_zx128.dat";
-          else
+          else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
             fName = "qs_cpc.dat";
+          else
+            fName = "qs_tvc.dat";
           useHomeDirectory = true;
         }
         Ep128Emu::File  f;
@@ -1611,7 +1697,7 @@ void Ep128EmuGUI::menuCallback_File_SaveSnapshot(Fl_Widget *o, void *v)
         try {
           Ep128Emu::File  f;
           gui_.vm.saveState(f);
-          f.writeFile(tmp.c_str());
+          gui_.writeFile(f, tmp.c_str());
         }
         catch (...) {
           gui_.unlockVMThread();
@@ -2193,11 +2279,13 @@ void Ep128EmuGUI::menuCallback_Machine_QuickCfgL1(Fl_Widget *o, void *v)
   (void) o;
   Ep128EmuGUI&  gui_ = *(reinterpret_cast<Ep128EmuGUI *>(v));
   try {
-    const char  *fName = "cpvmcfg1.cfg";
+    const char  *fName = "tvvmcfg1.cfg";
     if (typeid(gui_.vm) == typeid(Ep128::Ep128VM))
       fName = "epvmcfg1.cfg";
     else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
       fName = "zxvmcfg1.cfg";
+    else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
+      fName = "cpvmcfg1.cfg";
     gui_.config.loadState(fName, true);
     gui_.applyEmulatorConfiguration(true);
   }
@@ -2211,11 +2299,13 @@ void Ep128EmuGUI::menuCallback_Machine_QuickCfgL2(Fl_Widget *o, void *v)
   (void) o;
   Ep128EmuGUI&  gui_ = *(reinterpret_cast<Ep128EmuGUI *>(v));
   try {
-    const char  *fName = "cpvmcfg2.cfg";
+    const char  *fName = "tvvmcfg2.cfg";
     if (typeid(gui_.vm) == typeid(Ep128::Ep128VM))
       fName = "epvmcfg2.cfg";
     else if (typeid(gui_.vm) == typeid(ZX128::ZX128VM))
       fName = "zxvmcfg2.cfg";
+    else if (typeid(gui_.vm) == typeid(CPC464::CPC464VM))
+      fName = "cpvmcfg2.cfg";
     gui_.config.loadState(fName, true);
     gui_.applyEmulatorConfiguration(true);
   }

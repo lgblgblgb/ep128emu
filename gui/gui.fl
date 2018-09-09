@@ -82,6 +82,13 @@ class Ep128EmuGUI {open
   decl {Ep128Emu::Timer statsTimer;} {}
   decl {char windowTitleBuf[48];} {}
   decl {unsigned int savedSpeedPercentage;} {}
+  decl {float mouseXScale;} {}
+  decl {float mouseYScale;} {}
+  decl {int mouseXMin;} {}
+  decl {int mouseYMin;} {}
+  decl {int prvMouseXPos;} {}
+  decl {int prvMouseYPos;} {}
+  decl {int prvMouseButtonState;} {}
   decl {void init_();} {}
   decl {void updateDisplay_windowTitle();} {}
   decl {void updateDisplay_windowMode();} {}
@@ -96,6 +103,7 @@ class Ep128EmuGUI {open
   decl {void run();} {public
   }
   decl {void resizeWindow(int w, int h);} {}
+  decl {void sendMouseEvent(bool enableButtons, bool mouseWheelEvent);} {}
   decl {static int handleFLTKEvent(void *userData, int event);} {}
   decl {bool lockVMThread(size_t t = 2000);} {public
   }
@@ -103,13 +111,14 @@ class Ep128EmuGUI {open
   }
   decl {bool browseFile(std::string& fileName, std::string& dirName, const char *pattern, int type, const char *title);} {public
   }
+  decl {void writeFile(Ep128Emu::File& f, const char *fileName);} {public
+  }
   decl {void applyEmulatorConfiguration(bool updateWindowFlag_ = false);} {public
   }
   decl {void updateMenu();} {}
   decl {static void errorMessageCallback(void *userData, const char *msg);} {}
   decl {static void fileNameCallback(void *userData, std::string& fileName);} {}
   decl {static void fltkCheckCallback(void *userData);} {}
-  decl {static size_t rleCompressLine(unsigned char *outBuf, const unsigned char *inBuf, size_t width);} {}
   decl {static void screenshotCallback(void *userData, const unsigned char *buf, int w_, int h_);} {}
   decl {static void pollJoystickInput(void *userData);} {}
   decl {bool closeDemoFile(bool stopDemo_);} {}

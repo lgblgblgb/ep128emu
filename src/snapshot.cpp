@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -26,6 +26,12 @@
 #include "vm.hpp"
 #include "ep128vm.hpp"
 #include "ide.hpp"
+#ifdef ENABLE_SDEXT
+#  include "sdext.hpp"
+#endif
+#ifdef ENABLE_RESID
+#  include "resid/sid.hpp"
+#endif
 
 namespace Ep128 {
 
@@ -36,10 +42,27 @@ namespace Ep128 {
     nick.saveState(f);
     dave.saveState(f);
     z80.saveState(f);
+#ifdef ENABLE_SDEXT
+    sdext.saveState(f);
+#endif
+#ifdef ENABLE_RESID
+    if (sidModel)
+      sid->saveState(f);
+#endif
     {
       Ep128Emu::File::Buffer  buf;
       buf.setPosition(0);
-      buf.writeUInt32(0x01000004);      // version number
+      {
+        uint32_t  v = 0x01000005;       // version number
+#ifdef ENABLE_SDEXT
+        v = v | 0x00010000;             // bit 16 is set if SDExt is included
+#endif
+#ifdef ENABLE_RESID
+        if (sidModel)
+          v = v | 0x00020000;           // bit 17 is set if reSID is included
+#endif
+        buf.writeUInt32(v);
+      }
       buf.writeByte(memory.getPage(0));
       buf.writeByte(memory.getPage(1));
       buf.writeByte(memory.getPage(2));
@@ -62,6 +85,16 @@ namespace Ep128 {
       buf.writeInt64(prvRTCTime);
       for (int i = 0; i < 64; i++)
         buf.writeByte(cmosMemory[i]);
+      buf.writeBoolean(mouseEmulationEnabled);
+      buf.writeByte(prvB7PortState);
+      buf.writeUInt32(mouseTimer);
+      buf.writeUInt64(mouseData);
+#ifdef ENABLE_RESID
+      if (sidModel) {
+        buf.writeBoolean(sidEnabled);
+        buf.writeByte(sidAddressRegister);
+      }
+#endif
       f.addChunk(Ep128Emu::File::EP128EMU_CHUNKTYPE_VM_STATE, buf);
     }
   }
@@ -92,19 +125,23 @@ namespace Ep128 {
     stopDemo();
     for (int i = 0; i < 128; i++)
       dave.setKeyboardState(i, 0);
+    mouseDeltaX = 0;
+    mouseDeltaY = 0;
+    mouseButtonState = 0x00;
+    mouseWheelDelta = 0x00;
     // floppy and IDE emulation are disabled while recording or playing demo
-    currentFloppyDrive = 0xFF;
-    floppyDrives[0].reset();
-    floppyDrives[1].reset();
-    floppyDrives[2].reset();
-    floppyDrives[3].reset();
+    resetFloppyDrives(false);
     ideInterface->reset(0);
     z80.closeAllFiles();
+#ifdef ENABLE_SDEXT
+    // FIXME: implement a better way of disabling SDExt during demo recording
+    sdext.openImage((char *) 0);
+#endif
     // save full snapshot, including timing and clock frequency settings
     saveMachineConfiguration(f);
     saveState(f);
     demoBuffer.clear();
-    demoBuffer.writeUInt32(0x00020009); // version 2.0.9
+    demoBuffer.writeUInt32(0x0002000B); // version 2.0.11
     demoFile = &f;
     isRecordingDemo = true;
     setCallback(&demoRecordCallback, this, true);
@@ -113,6 +150,9 @@ namespace Ep128 {
 
   void Ep128VM::stopDemo()
   {
+#ifdef ENABLE_SDEXT
+    // TODO: re-enable SDExt after stopping demo recording or playback
+#endif
     stopDemoPlayback();
     stopDemoRecording(true);
   }
@@ -136,7 +176,8 @@ namespace Ep128 {
     buf.setPosition(0);
     // check version number
     unsigned int  version = buf.readUInt32();
-    if (!(version >= 0x01000000 && version <= 0x01000004)) {
+    // bit 16 of the version is set if the snapshot includes SDExt state
+    if (!(version >= 0x01000000 && (version & 0xFFFCFFFFU) <= 0x01000005)) {
       buf.setPosition(buf.getDataSize());
       throw Ep128Emu::Exception("incompatible ep128 snapshot version");
     }
@@ -145,14 +186,34 @@ namespace Ep128 {
     stopDemo();
     snapshotLoadFlag = true;
     // reset floppy and IDE emulation, as the state of these is not saved
-    currentFloppyDrive = 0xFF;
-    floppyDrives[0].reset();
-    floppyDrives[1].reset();
-    floppyDrives[2].reset();
-    floppyDrives[3].reset();
+    resetFloppyDrives(true);
     ideInterface->reset(3);
     z80.closeAllFiles();
+#ifdef ENABLE_MIDI_PORT
+    midiPortWriteCallback((void *) this, 0xF6, 0x00);
+#endif
     try {
+#ifdef ENABLE_SDEXT
+      if (!(version & 0x00010000)) {
+        // reset and disable SDExt if the snapshot is from an old version
+        sdext.reset(2);
+        sdext.setEnabled(false);
+        sdext.openROMFile((char *) 0);
+      }
+#endif
+      bool      haveSIDState = bool(version & 0x00020000);
+#ifdef ENABLE_RESID
+      if (!haveSIDState) {
+        if (sid)
+          sid->reset();
+        if (sidEnabled) {
+          setCallback(&sidCallback, this, false);
+          sidEnabled = false;
+        }
+        sidAddressRegister = 0x00;
+      }
+#endif
+      version = version & 0xFFFCFFFFU;
       uint8_t   p0, p1, p2, p3;
       p0 = buf.readByte();
       p1 = buf.readByte();
@@ -215,9 +276,50 @@ namespace Ep128 {
           spectrumEmulatorIOPorts[i] = 0xFF;
         resetCMOSMemory();
       }
-      if (buf.getPosition() != buf.getDataSize())
+      if (version >= 0x01000005) {
+        mouseEmulationEnabled = buf.readBoolean();
+        prvB7PortState = buf.readByte();
+        mouseTimer = buf.readUInt32();
+        mouseData = buf.readUInt64();
+        if (mouseTimer)
+          setCallback(&mouseTimerCallback, this, true);
+        else
+          dave.clearMouseInput();
+      }
+      else {
+        // snapshot from old version without mouse emulation
+        mouseEmulationEnabled = false;
+        prvB7PortState = 0x00;
+        mouseTimer = 0U;
+        mouseData = 0ULL;
+        dave.setMouseInput(0xFF);
+      }
+      mouseDeltaX = 0;
+      mouseDeltaY = 0;
+      mouseButtonState = 0x00;
+      mouseWheelDelta = 0x00;
+      if (haveSIDState) {
+#ifdef ENABLE_RESID
+        bool    sidEnabled_ = buf.readBoolean();
+        uint8_t sidAddressRegister_ = buf.readByte() & 0x1F;
+        if (!sidModel) {
+          sidEnabled_ = false;
+          sidAddressRegister_ = 0x00;
+        }
+        if (sidEnabled_ != sidEnabled) {
+          setCallback(&sidCallback, this, sidEnabled_);
+          sidEnabled = sidEnabled_;
+        }
+        sidAddressRegister = sidAddressRegister_;
+#else
+        (void) buf.readBoolean();
+        (void) buf.readByte();
+#endif
+      }
+      if (buf.getPosition() != buf.getDataSize()) {
         throw Ep128Emu::Exception("trailing garbage at end of "
                                   "ep128 snapshot data");
+      }
     }
     catch (...) {
       this->reset(true);
@@ -274,7 +376,7 @@ namespace Ep128 {
     // check version number
     unsigned int  version = buf.readUInt32();
 #if 0
-    if (version != 0x00020009) {
+    if (version != 0x0002000B) {
       buf.setPosition(buf.getDataSize());
       throw Ep128Emu::Exception("incompatible ep128 demo format");
     }
@@ -289,12 +391,12 @@ namespace Ep128 {
     for (int i = 0; i < 128; i++)
       dave.setKeyboardState(i, 0);
     // floppy and IDE emulation are disabled while recording or playing demo
-    currentFloppyDrive = 0xFF;
-    floppyDrives[0].reset();
-    floppyDrives[1].reset();
-    floppyDrives[2].reset();
-    floppyDrives[3].reset();
+    resetFloppyDrives(false);
     ideInterface->reset(0);
+#ifdef ENABLE_SDEXT
+    // FIXME: implement a better way of disabling SDExt during demo playback
+    sdext.openImage((char *) 0);
+#endif
     // initialize time counter with first delta time
     demoTimeCnt = buf.readUIntVLen();
     isPlayingDemo = true;
@@ -403,6 +505,13 @@ namespace Ep128 {
     memory.registerChunkType(f);
     dave.registerChunkType(f);
     nick.registerChunkType(f);
+#ifdef ENABLE_SDEXT
+    sdext.registerChunkType(f);
+#endif
+#ifdef ENABLE_RESID
+    if (sid)
+      sid->registerChunkType(f);
+#endif
   }
 
 }       // namespace Ep128

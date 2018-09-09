@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2009 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,10 @@
 
 #include "ep128emu.hpp"
 #include "ep128vm.hpp"
+#ifdef ENABLE_SDEXT
+#  include "sdext.hpp"
+#endif
+#include "system.hpp"
 
 #include <vector>
 
@@ -68,12 +72,12 @@ namespace Ep128 {
     }
     // load file into memory
     std::vector<uint8_t>  buf;
-    buf.resize(0x4000);
-    std::FILE   *f = std::fopen(fileName, "rb");
+    buf.resize(0x4000, 0xFF);
+    std::FILE   *f = Ep128Emu::fileOpen(fileName, "rb");
     if (!f)
       throw Ep128Emu::Exception("cannot open ROM file");
     std::fseek(f, 0L, SEEK_END);
-    if (ftell(f) < long(offs + 0x4000)) {
+    if (std::ftell(f) < long(offs + 11)) {
       std::fclose(f);
       throw Ep128Emu::Exception("ROM file is shorter than expected");
     }
@@ -107,7 +111,7 @@ namespace Ep128 {
     try {
       if (fileName_.length() < 1)
         throw Ep128Emu::Exception("invalid memory configuration file name");
-      f = std::fopen(fileName_.c_str(), "rb");
+      f = Ep128Emu::fileOpen(fileName_.c_str(), "rb");
       if (!f)
         throw Ep128Emu::Exception("error opening memory configuration file");
       std::vector< std::string >  args;
@@ -261,7 +265,7 @@ namespace Ep128 {
         }
         romFile = (std::FILE *) 0;
         if (fileName.length() > 0) {
-          romFile = std::fopen(fileName.c_str(), "rb");
+          romFile = Ep128Emu::fileOpen(fileName.c_str(), "rb");
           if (!romFile)
             throw Ep128Emu::Exception("error opening ROM file");
         }
@@ -321,6 +325,18 @@ namespace Ep128 {
       throw;
     }
   }
+
+  // --------------------------------------------------------------------------
+
+#ifdef ENABLE_SDEXT
+  void Ep128VM::configureSDCard(bool isEnabled, const std::string& romFileName)
+  {
+    stopDemo();
+    sdext.reset(2);
+    sdext.setEnabled(isEnabled);
+    sdext.openROMFile(romFileName.c_str());
+  }
+#endif
 
 }       // namespace Ep128
 

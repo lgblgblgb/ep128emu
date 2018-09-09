@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -226,10 +226,16 @@ namespace ZX128 {
     return retval;
   }
 
-  EP128EMU_REGPARM1 uint8_t ZX128VM::Z80_::readOpcodeSecondByte()
+  EP128EMU_REGPARM2 uint8_t ZX128VM::Z80_::readOpcodeSecondByte(
+      const bool *invalidOpcodeTable)
   {
-    addressBusState.B.h = R.I;
     uint16_t  addr = (uint16_t(R.PC.W.l) + uint16_t(1)) & uint16_t(0xFFFF);
+    if (invalidOpcodeTable) {
+      uint8_t b = vm.memory.readNoDebug(addr);
+      if (EP128EMU_UNLIKELY(invalidOpcodeTable[b]))
+        return b;
+    }
+    addressBusState.B.h = R.I;
     vm.memoryWaitM1(addr);
     uint8_t   retval = vm.memory.readOpcode(addr);
     vm.updateCPUHalfCycles(4);
@@ -1047,11 +1053,11 @@ namespace ZX128 {
     // load file into memory
     std::vector<uint8_t>  buf;
     buf.resize(0x4000);
-    std::FILE   *f = std::fopen(fileName, "rb");
+    std::FILE   *f = Ep128Emu::fileOpen(fileName, "rb");
     if (!f)
       throw Ep128Emu::Exception("cannot open ROM file");
     std::fseek(f, 0L, SEEK_END);
-    if (ftell(f) < long(offs + 0x4000)) {
+    if (std::ftell(f) < long(offs + 0x4000)) {
       std::fclose(f);
       throw Ep128Emu::Exception("ROM file is shorter than expected");
     }
@@ -1399,30 +1405,7 @@ namespace ZX128 {
 
   void ZX128VM::listCPURegisters(std::string& buf) const
   {
-    char    tmpBuf[256];
-    const Ep128::Z80_REGISTERS& r = z80.getReg();
-    std::sprintf(
-        &(tmpBuf[0]),
-        " PC   AF   BC   DE   HL   SP   IX   IY    F   ........\n"
-        "%04X %04X %04X %04X %04X %04X %04X %04X   F'  ........\n"
-        "      AF'  BC'  DE'  HL'  IM   I    R    IFF1 .\n"
-        "     %04X %04X %04X %04X  %02X   %02X   %02X   IFF2 .",
-        (unsigned int) z80.getProgramCounter(), (unsigned int) r.AF.W,
-        (unsigned int) r.BC.W, (unsigned int) r.DE.W,
-        (unsigned int) r.HL.W, (unsigned int) r.SP.W,
-        (unsigned int) r.IX.W, (unsigned int) r.IY.W,
-        (unsigned int) r.altAF.W, (unsigned int) r.altBC.W,
-        (unsigned int) r.altDE.W, (unsigned int) r.altHL.W,
-        (unsigned int) r.IM, (unsigned int) r.I, (unsigned int) r.R);
-    static const char *z80Flags_ = "SZ1H1VNC";
-    for (int i = 0; i < 8; i++) {
-      tmpBuf[i + 46] = ((r.AF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-      tmpBuf[i + 101] =
-          ((r.altAF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-    }
-    tmpBuf[156] = '0' + char(bool(r.IFF1));
-    tmpBuf[204] = '0' + char(bool(r.IFF2));
-    buf = &(tmpBuf[0]);
+    listZ80Registers(buf, z80);
   }
 
   void ZX128VM::listIORegisters(std::string& buf) const

@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://sourceforge.net/projects/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ namespace Ep128Emu {
     Mutex(const Mutex& m_);
     ~Mutex();
     Mutex& operator=(const Mutex& m_);
-    inline void lock()
+    EP128EMU_INLINE void lock()
     {
 #ifdef WIN32
       EnterCriticalSection(&(m->mutex_));
@@ -133,7 +133,7 @@ namespace Ep128Emu {
       pthread_mutex_lock(&(m->mutex_));
 #endif
     }
-    inline void unlock()
+    EP128EMU_INLINE void unlock()
     {
 #ifdef WIN32
       LeaveCriticalSection(&(m->mutex_));
@@ -209,6 +209,36 @@ namespace Ep128Emu {
    * character), append a dot character and 's' to the file name.
    */
   void addFileNameExtension(std::string& fileName, const char *s);
+
+#ifndef WIN32
+  EP128EMU_INLINE std::FILE *fileOpen(const char *fileName, const char *mode)
+  {
+    return std::fopen(fileName, mode);
+  }
+  EP128EMU_INLINE int fileRemove(const char *fileName)
+  {
+    return std::remove(fileName);
+  }
+#else
+  /*!
+   * Convert from wchar_t to UTF-8 encoded string.
+   */
+  void convertToUTF8(std::string& buf, const wchar_t *s);
+
+  void getenv_UTF8(std::string& s, const char *name);
+
+  /*!
+   * Convert UTF-8 encoded string to wchar_t.
+   */
+  void convertUTF8(wchar_t *buf, const char *s, size_t bufSize);
+
+  // file I/O wrappers with support for UTF-8 encoded file names
+  std::FILE *fileOpen(const char *fileName, const char *mode);
+  int fileRemove(const char *fileName);
+  // 'st' is a pointer to a _stat structure
+  int fileStat(const char *fileName, void *st);
+  int mkdir_UTF8(const char *dirName);
+#endif
 
 }       // namespace Ep128Emu
 

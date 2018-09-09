@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -93,6 +93,7 @@ namespace Ep128Emu {
       EP128EMU_CHUNKTYPE_PLUS4_DEMO =     0x4550800F,
       EP128EMU_CHUNKTYPE_PLUS4_PRG =      0x45508010,
       EP128EMU_CHUNKTYPE_SID_STATE =      0x45508011,
+      EP128EMU_CHUNKTYPE_SDEXT_STATE =    0x45508018,
       EP128EMU_CHUNKTYPE_ZXMEM_STATE =    0x45508020,
       EP128EMU_CHUNKTYPE_ZXIO_STATE =     0x45508021,
       EP128EMU_CHUNKTYPE_ZXAY3_STATE =    0x45508022,
@@ -109,7 +110,12 @@ namespace Ep128Emu {
       EP128EMU_CHUNKTYPE_CPCVM_CONFIG =   0x45508034,
       EP128EMU_CHUNKTYPE_CPCVM_STATE =    0x45508035,
       EP128EMU_CHUNKTYPE_CPC_DEMO =       0x45508036,
-      EP128EMU_CHUNKTYPE_CPC_SNA_FILE =   0x45508037
+      EP128EMU_CHUNKTYPE_CPC_SNA_FILE =   0x45508037,
+      EP128EMU_CHUNKTYPE_TVCMEM_STATE =   0x45508040,
+      EP128EMU_CHUNKTYPE_TVCVID_STATE =   0x45508041,
+      EP128EMU_CHUNKTYPE_TVCVM_CONFIG =   0x45508042,
+      EP128EMU_CHUNKTYPE_TVCVM_STATE =    0x45508043,
+      EP128EMU_CHUNKTYPE_TVC_DEMO =       0x45508044
     } ChunkType;
     // ----------------
     class ChunkTypeHandler {
@@ -125,10 +131,12 @@ namespace Ep128Emu {
     Buffer  buf;
     std::map< int, ChunkTypeHandler * > chunkTypeDB;
     void loadZXSnapshotFile(std::FILE *f, const char *fileName);
+    void loadCompressedFile(std::FILE *f);
    public:
     void addChunk(ChunkType type, const Buffer& buf_);
     void processAllChunks();
-    void writeFile(const char *fileName, bool useHomeDirectory = false);
+    void writeFile(const char *fileName, bool useHomeDirectory = false,
+                   bool enableCompression = false);
     void registerChunkType(ChunkTypeHandler *);
     File();
     File(const char *fileName, bool useHomeDirectory = false);
@@ -141,6 +149,8 @@ namespace Ep128Emu {
     {
       return buf.getData();
     }
+    static EP128EMU_REGPARM2 uint32_t hash_32(const unsigned char *buf,
+                                              size_t nBytes);
   };
 
 }       // namespace Ep128Emu

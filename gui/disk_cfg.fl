@@ -1,5 +1,5 @@
 # data file for the Fltk User Interface Designer (fluid)
-version 1.0109 
+version 1.0110 
 do_not_include_H_from_C 
 header_name {.hpp} 
 code_name {.cpp}
@@ -7,6 +7,8 @@ decl {\#include "gui.hpp"} {selected
 } 
 
 decl {\#include "ep128vm.hpp"} {} 
+
+decl {\#include "tvc64vm.hpp"} {} 
 
 decl {\#include <typeinfo>} {} 
 
@@ -69,7 +71,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
-              label {...}
+              label {@fileopen}
               callback {{
   try {
     std::string tmp;
@@ -85,7 +87,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {265 55 25 25} color 50 selection_color 51
+              xywh {265 55 25 25} color 50 selection_color 51 labelcolor 3
             }
             Fl_Box {} {
               label {Image file}
@@ -155,7 +157,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
-              label {...}
+              label {@fileopen}
               callback {{
   try {
     std::string tmp;
@@ -171,7 +173,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {265 145 25 25} color 50 selection_color 51
+              xywh {265 145 25 25} color 50 selection_color 51 labelcolor 3
             }
             Fl_Box {} {
               label {Image file}
@@ -225,7 +227,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
-              label {...}
+              label {@fileopen}
               callback {{
   try {
     std::string tmp;
@@ -241,7 +243,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {265 235 25 25} color 50 selection_color 51
+              xywh {265 235 25 25} color 50 selection_color 51 labelcolor 3
             }
             Fl_Box {} {
               label {Image file}
@@ -295,7 +297,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
-              label {...}
+              label {@fileopen}
               callback {{
   try {
     std::string tmp;
@@ -311,7 +313,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {265 325 25 25} color 50 selection_color 51
+              xywh {265 325 25 25} color 50 selection_color 51 labelcolor 3
             }
             Fl_Box {} {
               label {Image file}
@@ -350,12 +352,12 @@ class Ep128EmuGUI_DiskConfigWindow {open
           }
         }
         Fl_Group ideConfigGroup {
-          label IDE open
+          label {IDE/SD} open
           xywh {10 35 380 370} box THIN_UP_BOX hide
         } {
           Fl_Group {} {
             label {Primary master} open
-            xywh {20 45 360 65} box THIN_UP_BOX align 21
+            xywh {20 45 360 61} box THIN_UP_BOX align 21
           } {
             Fl_Input ide0ImageFileValuator {
               callback {{
@@ -366,7 +368,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {30 75 310 25}
+              xywh {30 71 310 25}
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
@@ -386,12 +388,12 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {345 75 25 25} color 50 selection_color 51
+              xywh {345 71 25 25} color 50 selection_color 51
             }
           }
           Fl_Group {} {
             label {Primary slave} open
-            xywh {20 120 360 65} box THIN_UP_BOX align 21
+            xywh {20 116 360 61} box THIN_UP_BOX align 21
           } {
             Fl_Input ide1ImageFileValuator {
               callback {{
@@ -402,7 +404,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {30 150 310 25}
+              xywh {30 142 310 25}
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
@@ -422,12 +424,12 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {345 150 25 25} color 50 selection_color 51
+              xywh {345 142 25 25} color 50 selection_color 51
             }
           }
           Fl_Group {} {
             label {Secondary master} open
-            xywh {20 195 360 65} box THIN_UP_BOX align 21
+            xywh {20 187 360 61} box THIN_UP_BOX align 21
           } {
             Fl_Input ide2ImageFileValuator {
               callback {{
@@ -438,7 +440,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {30 225 310 25}
+              xywh {30 213 310 25}
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
@@ -458,12 +460,12 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {345 225 25 25} color 50 selection_color 51
+              xywh {345 213 25 25} color 50 selection_color 51
             }
           }
           Fl_Group {} {
             label {Secondary slave} open
-            xywh {20 270 360 65} box THIN_UP_BOX align 21
+            xywh {20 258 360 61} box THIN_UP_BOX align 21
           } {
             Fl_Input ide3ImageFileValuator {
               callback {{
@@ -474,7 +476,7 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {30 300 310 25}
+              xywh {30 284 310 25}
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Button {} {
@@ -494,7 +496,49 @@ class Ep128EmuGUI_DiskConfigWindow {open
     gui.errorMessage(e.what());
   }
 }}
-              xywh {345 300 25 25} color 50 selection_color 51
+              xywh {345 284 25 25} color 50 selection_color 51
+            }
+          }
+          Fl_Group sdCardImageGroup {
+            label {SD card} open
+            xywh {20 334 360 61} box ENGRAVED_FRAME align 21
+          } {
+            Fl_Input sdExtImageFileValuator {
+              callback {{
+  try {
+    if (gui.config.sdext.imageFile != o->value()) {
+      gui.config.sdext.imageFile = o->value();
+      gui.config.sdCardImageChanged = true;
+    }
+  }
+  catch (std::exception& e) {
+    gui.errorMessage(e.what());
+  }
+}}
+              xywh {30 360 310 25}
+              code0 {o->cursor_color(Fl_Color(3));}
+            }
+            Fl_Button {} {
+              label {...}
+              callback {{
+  try {
+    std::string tmp;
+    if (gui.browseFile(tmp, gui.diskImageDirectory,
+                       "Hard disk image files\\t*",
+                       Fl_Native_File_Chooser::BROWSE_FILE,
+                       "Select SD card image file")) {
+      if (tmp != gui.config.sdext.imageFile) {
+        gui.config.sdext.imageFile = tmp;
+        gui.config.sdCardImageChanged = true;
+        sdExtImageFileValuator->value(gui.config.sdext.imageFile.c_str());
+      }
+    }
+  }
+  catch (std::exception& e) {
+    gui.errorMessage(e.what());
+  }
+}}
+              xywh {345 360 25 25} color 50 selection_color 51
             }
           }
         }
@@ -534,6 +578,8 @@ class Ep128EmuGUI_DiskConfigWindow {open
       gui.config.ide.imageFile2.clear();
       gui.config.ideDisk3Changed = true;
       gui.config.ide.imageFile3.clear();
+      gui.config.sdCardImageChanged = true;
+      gui.config.sdext.imageFile.clear();
     }
   }
   catch (std::exception& e) {
@@ -604,8 +650,11 @@ class Ep128EmuGUI_DiskConfigWindow {open
   floppyBImageFileValuator->value(gui.config.floppy.b.imageFile.c_str());
   floppyCImageFileValuator->value(gui.config.floppy.c.imageFile.c_str());
   floppyDImageFileValuator->value(gui.config.floppy.d.imageFile.c_str());
-  if (typeid(gui.vm) != typeid(Ep128::Ep128VM)) {
+  if (typeid(gui.vm) != typeid(Ep128::Ep128VM) &&
+      typeid(gui.vm) != typeid(TVC64::TVC64VM)) {
     ideConfigGroup->deactivate();
+    ideConfigGroup->hide();
+    diskConfigTabs->remove(*ideConfigGroup);
     floppyATracksValuator->deactivate();
     floppyASidesValuator->deactivate();
     floppyASectorsPerTrackValuator->deactivate();
@@ -632,10 +681,19 @@ class Ep128EmuGUI_DiskConfigWindow {open
     floppyDTracksValuator->value(double(gui.config.floppy.d.tracks));
     floppyDSidesValuator->value(double(gui.config.floppy.d.sides));
     floppyDSectorsPerTrackValuator->value(double(gui.config.floppy.d.sectorsPerTrack));
-    ide0ImageFileValuator->value(gui.config.ide.imageFile0.c_str());
-    ide1ImageFileValuator->value(gui.config.ide.imageFile1.c_str());
-    ide2ImageFileValuator->value(gui.config.ide.imageFile2.c_str());
-    ide3ImageFileValuator->value(gui.config.ide.imageFile3.c_str());
+    if (typeid(gui.vm) == typeid(TVC64::TVC64VM)) {
+      ide0ImageFileValuator->deactivate();
+      ide1ImageFileValuator->deactivate();
+      ide2ImageFileValuator->deactivate();
+      ide3ImageFileValuator->deactivate();
+    }
+    else {
+      ide0ImageFileValuator->value(gui.config.ide.imageFile0.c_str());
+      ide1ImageFileValuator->value(gui.config.ide.imageFile1.c_str());
+      ide2ImageFileValuator->value(gui.config.ide.imageFile2.c_str());
+      ide3ImageFileValuator->value(gui.config.ide.imageFile3.c_str());
+    }
+    sdExtImageFileValuator->value(gui.config.sdext.imageFile.c_str());
   }
 }} {}
   }

@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
 // Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "ep128emu.hpp"
+#include "system.hpp"
 #include "fileio.hpp"
 #include "display.hpp"
 #include "snd_conv.hpp"
@@ -224,6 +225,26 @@ namespace Ep128Emu {
     (void) fileName_;
   }
 
+#ifdef ENABLE_SDEXT
+  void VirtualMachine::configureSDCard(bool isEnabled,
+                                       const std::string& romFileName)
+  {
+    (void) isEnabled;
+    (void) romFileName;
+  }
+#endif
+
+#ifdef ENABLE_RESID
+  void VirtualMachine::setSIDConfiguration(int n, int model,
+                                           double volumeL, double volumeR)
+  {
+    (void) n;
+    (void) model;
+    (void) volumeL;
+    (void) volumeR;
+  }
+#endif
+
   void VirtualMachine::setAudioOutputHighQuality(bool useHighQualityResample)
   {
     if (useHighQualityResample != audioOutputHighQuality) {
@@ -341,6 +362,15 @@ namespace Ep128Emu {
     (void) isPressed;
   }
 
+  void VirtualMachine::setMouseState(int8_t dX, int8_t dY, uint8_t buttonState,
+                                     uint8_t mouseWheelEvents)
+  {
+    (void) dX;
+    (void) dY;
+    (void) buttonState;
+    (void) mouseWheelEvents;
+  }
+
   void VirtualMachine::getVMStatus(VMStatus& vmStatus_)
   {
     vmStatus_.tapeReadOnly = getIsTapeReadOnly();
@@ -375,6 +405,23 @@ namespace Ep128Emu {
   void VirtualMachine::closeVideoCapture()
   {
   }
+
+#ifdef ENABLE_MIDI_PORT
+  void VirtualMachine::midiInReceiveEvent(int32_t evt)
+  {
+    (void) evt;
+  }
+
+  int32_t VirtualMachine::midiOutSendEvent()
+  {
+    return -1;
+  }
+
+  void VirtualMachine::midiSetDeviceType(int t)
+  {
+    (void) t;
+  }
+#endif
 
   void VirtualMachine::setDiskImageFile(int n, const std::string& fileName_,
                                         int nTracks_, int nSides_,
@@ -846,9 +893,7 @@ namespace Ep128Emu {
     f = (std::FILE *) 0;
     try {
       std::string fullName;
-      bool        haveFileName = false;
       if (fileName_.length() > 0) {
-        haveFileName = true;
         // convert file name to lower case, replace invalid characters with '_'
         std::string baseName(fileName_);
         stringToLowerCase(baseName);
@@ -865,14 +910,13 @@ namespace Ep128Emu {
           fileNameCallback(fileNameCallbackUserData, fullName);
         if (fullName.length() == 0)
           return -2;                    // error: invalid file name
-        fileName_ = fullName;
       }
       // attempt to stat() file
 #ifndef WIN32
       struct stat   st;
       std::memset(&st, 0, sizeof(struct stat));
       int   err = stat(fullName.c_str(), &st);
-      if (err != 0 && haveFileName) {
+      if (err != 0 && !fileName_.empty()) {
         // not found, try case insensitive file search
         std::string tmpName(fullName);
         tmpName[0] = tmpName.c_str()[0];    // unshare string
@@ -911,8 +955,7 @@ namespace Ep128Emu {
       }
 #else
       struct _stat  st;
-      std::memset(&st, 0, sizeof(struct _stat));
-      int   err = _stat(fullName.c_str(), &st);
+      int     err = fileStat(fullName.c_str(), &st);
 #endif
       if (err != 0) {
         if (mode == (char *) 0 || mode[0] != 'w')
@@ -931,7 +974,8 @@ namespace Ep128Emu {
       }
       // FIXME: the file may possibly be created, changed, or removed between
       // calling stat() and fopen()
-      f = std::fopen(fullName.c_str(), mode);
+      f = fileOpen(fullName.c_str(), mode);
+      fileName_ = fullName;
       if (!f)
         return -5;                      // error: cannot open file
     }

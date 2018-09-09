@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -56,7 +56,9 @@ namespace ZX128 {
       virtual EP128EMU_REGPARM2 uint8_t readMemory(uint16_t addr);
       virtual EP128EMU_REGPARM2 uint16_t readMemoryWord(uint16_t addr);
       virtual EP128EMU_REGPARM1 uint8_t readOpcodeFirstByte();
-      virtual EP128EMU_REGPARM1 uint8_t readOpcodeSecondByte();
+      virtual EP128EMU_REGPARM2
+          uint8_t readOpcodeSecondByte(const bool *invalidOpcodeTable =
+                                           (bool *) 0);
       virtual EP128EMU_REGPARM2 uint8_t readOpcodeByte(int offset);
       virtual EP128EMU_REGPARM2 uint16_t readOpcodeWord(int offset);
       virtual EP128EMU_REGPARM3 void writeMemory(uint16_t addr, uint8_t value);

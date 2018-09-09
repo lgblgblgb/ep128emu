@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #include "ep128emu.hpp"
 #include "fileio.hpp"
 #include "system.hpp"
+#include "decompm2.hpp"
 
 #include <cmath>
 #include <map>
@@ -32,38 +33,6 @@ static const unsigned char  ep128EmuFile_Magic[16] = {
 static const unsigned char  cpcSNAFile_Magic[8] = {
   0x4D, 0x56, 0x20, 0x2D, 0x20, 0x53, 0x4E, 0x41        // "MV - SNA"
 };
-
-static uint32_t hash_32(const unsigned char *buf, size_t nBytes)
-{
-  size_t        n = nBytes >> 2;
-  unsigned int  h = 1U;
-
-  for (size_t i = 0; i < n; i++) {
-    h ^=  ((unsigned int) buf[0] & 0xFFU);
-    h ^= (((unsigned int) buf[1] & 0xFFU) << 8);
-    h ^= (((unsigned int) buf[2] & 0xFFU) << 16);
-    h ^= (((unsigned int) buf[3] & 0xFFU) << 24);
-    buf += 4;
-    uint64_t  tmp = (uint32_t) h * (uint64_t) 0xC2B0C3CCU;
-    h = ((unsigned int) tmp ^ (unsigned int) (tmp >> 32)) & 0xFFFFFFFFU;
-  }
-  switch (uint8_t(nBytes) & 3) {
-  case 3:
-    h ^= (((unsigned int) buf[2] & 0xFFU) << 16);
-  case 2:
-    h ^= (((unsigned int) buf[1] & 0xFFU) << 8);
-  case 1:
-    h ^=  ((unsigned int) buf[0] & 0xFFU);
-    {
-      uint64_t  tmp = (uint32_t) h * (uint64_t) 0xC2B0C3CCU;
-      h = ((unsigned int) tmp ^ (unsigned int) (tmp >> 32)) & 0xFFFFFFFFU;
-    }
-    break;
-  default:
-    break;
-  }
-  return uint32_t(h);
-}
 
 static void getFullPathFileName(const char *fileName, std::string& fullName)
 {
@@ -79,6 +48,39 @@ static void getFullPathFileName(const char *fileName, std::string& fullName)
 // ----------------------------------------------------------------------------
 
 namespace Ep128Emu {
+
+  EP128EMU_REGPARM2 uint32_t File::hash_32(const unsigned char *buf,
+                                           size_t nBytes)
+  {
+    size_t        n = nBytes >> 2;
+    unsigned int  h = 1U;
+
+    for (size_t i = 0; i < n; i++) {
+      h ^=  ((unsigned int) buf[0] & 0xFFU);
+      h ^= (((unsigned int) buf[1] & 0xFFU) << 8);
+      h ^= (((unsigned int) buf[2] & 0xFFU) << 16);
+      h ^= (((unsigned int) buf[3] & 0xFFU) << 24);
+      buf += 4;
+      uint64_t  tmp = (uint32_t) h * (uint64_t) 0xC2B0C3CCU;
+      h = ((unsigned int) tmp ^ (unsigned int) (tmp >> 32)) & 0xFFFFFFFFU;
+    }
+    switch (uint8_t(nBytes) & 3) {
+    case 3:
+      h ^= (((unsigned int) buf[2] & 0xFFU) << 16);
+    case 2:
+      h ^= (((unsigned int) buf[1] & 0xFFU) << 8);
+    case 1:
+      h ^=  ((unsigned int) buf[0] & 0xFFU);
+      {
+        uint64_t  tmp = (uint32_t) h * (uint64_t) 0xC2B0C3CCU;
+        h = ((unsigned int) tmp ^ (unsigned int) (tmp >> 32)) & 0xFFFFFFFFU;
+      }
+      break;
+    default:
+      break;
+    }
+    return uint32_t(h);
+  }
 
   File::Buffer::Buffer()
   {
@@ -479,6 +481,43 @@ namespace Ep128Emu {
     buf.setPosition(0);
   }
 
+  void File::loadCompressedFile(std::FILE *f)
+  {
+    long    fileSize = 0L;
+    if (std::fseek(f, 0L, SEEK_END) < 0 || (fileSize = std::ftell(f)) < 0L ||
+        std::fseek(f, 0L, SEEK_SET) < 0) {
+      throw Exception("error seeking file");
+    }
+    if (fileSize < 20L || fileSize >= 0x00500000L)
+      throw Exception("invalid file header");
+    std::vector< unsigned char >  tmpBuf;
+    {
+      std::vector< unsigned char >  inBuf(fileSize);
+      if (std::fread(&(inBuf.front()), sizeof(unsigned char), size_t(fileSize),
+                     f) != size_t(fileSize)) {
+        throw Exception("error reading file");
+      }
+      tmpBuf.reserve(fileSize);
+      try {
+        Ep128Emu::decompressData(tmpBuf, &(inBuf.front()), inBuf.size());
+      }
+      catch (...) {
+        throw Exception("invalid file header or error in compressed file");
+      }
+    }
+    for (size_t i = 0; i < 16; i++) {
+      if (i >= tmpBuf.size() || tmpBuf[i] != ep128EmuFile_Magic[i])
+        throw Exception("invalid file header");
+    }
+    buf.clear();
+    buf.setPosition(tmpBuf.size() - 16);
+    buf.setPosition(0);
+    if (buf.getDataSize() > 0) {
+      std::memcpy(const_cast< unsigned char * >(buf.getData()),
+                  &(tmpBuf.front()) + 16, buf.getDataSize());
+    }
+  }
+
   File::File()
   {
   }
@@ -493,7 +532,7 @@ namespace Ep128Emu {
         getFullPathFileName(fileName, fullName);
       else
         fullName = fileName;
-      std::FILE *f = std::fopen(fullName.c_str(), "rb");
+      std::FILE *f = fileOpen(fullName.c_str(), "rb");
       if (f) {
         try {
           int     c;
@@ -501,7 +540,15 @@ namespace Ep128Emu {
             c = std::fgetc(f);
             if (c == EOF ||
                 (unsigned char) (c & 0xFF) != ep128EmuFile_Magic[i]) {
-              loadZXSnapshotFile(f, fileName);
+              try {
+                loadZXSnapshotFile(f, fileName);
+              }
+              catch (Exception& e) {
+                // check for compressed file format
+                if (std::strcmp(e.what(), "invalid file header") != 0)
+                  throw;
+                loadCompressedFile(f);
+              }
               std::fclose(f);
               return;
             }
@@ -586,39 +633,66 @@ namespace Ep128Emu {
       throw Exception("CRC error in file data");
   }
 
-  void File::writeFile(const char *fileName, bool useHomeDirectory)
+  void File::writeFile(const char *fileName, bool useHomeDirectory,
+                       bool enableCompression)
   {
     size_t  startPos = buf.getPosition();
-    bool    err = false;
+    bool    err = true;
 
-    buf.setPosition(startPos + 12);
+    if (enableCompression) {
+      buf.setPosition(startPos + 28);
+      if (startPos > 0) {
+        std::memmove(const_cast< unsigned char * >(buf.getData() + 16),
+                     buf.getData(), startPos);
+      }
+      std::memcpy(const_cast< unsigned char * >(buf.getData()),
+                  &(ep128EmuFile_Magic[0]), 16);
+      startPos = startPos + 16;
+    }
+    else {
+      buf.setPosition(startPos + 12);
+    }
     buf.setPosition(startPos);
     buf.writeUInt32(uint32_t(EP128EMU_CHUNKTYPE_END_OF_FILE));
-    buf.writeUInt32(0);
+    buf.writeUInt32(0U);
     buf.writeUInt32(hash_32(buf.getData() + startPos, 8));
+    if (enableCompression) {
+      try {
+        std::vector< unsigned char >  tmpBuf;
+        compressData(tmpBuf, buf.getData(), startPos + 12);
+        buf.clear();
+        buf.setPosition(tmpBuf.size());
+        std::memcpy(const_cast< unsigned char * >(buf.getData()),
+                    &(tmpBuf.front()), tmpBuf.size());
+      }
+      catch (...) {
+        buf.clear();
+        throw Exception("error compressing file");
+      }
+    }
     if (fileName != (char*) 0 && fileName[0] != '\0') {
       std::string fullName;
       if (useHomeDirectory)
         getFullPathFileName(fileName, fullName);
       else
         fullName = fileName;
-      std::FILE *f = std::fopen(fullName.c_str(), "wb");
+      std::FILE *f = fileOpen(fullName.c_str(), "wb");
       if (f) {
-        if (std::fwrite(&(ep128EmuFile_Magic[0]), 1, 16, f) != 16)
-          err = true;
-        if (std::fwrite(buf.getData(), 1, buf.getDataSize(), f)
-            != buf.getDataSize())
-          err = true;
+        err = !(enableCompression ||
+                std::fwrite(&(ep128EmuFile_Magic[0]), 1, 16, f) == 16);
+        if (!err) {
+          if (std::fwrite(buf.getData(),
+                          sizeof(unsigned char), buf.getDataSize(), f)
+              != buf.getDataSize()) {
+            err = true;
+          }
+        }
         if (std::fclose(f) != 0)
           err = true;
         if (err)
-          std::remove(fullName.c_str());
+          fileRemove(fullName.c_str());
       }
-      else
-        err = true;
     }
-    else
-      err = true;
     buf.clear();
     if (err)
       throw Exception("error opening or writing file");

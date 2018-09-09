@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,6 +36,11 @@ namespace Ep128Emu {
     VirtualMachine& vm_;
     VideoDisplay&   videoDisplay;
     AudioOutput&    audioOutput;
+#ifdef ENABLE_MIDI_PORT
+   public:
+    MIDIPort&       midiPort;
+   private:
+#endif
     std::map< int, int >  keyboardMap;
     void            (*errorCallback)(void *, const char *);
     void            *errorCallbackUserData;
@@ -126,15 +131,28 @@ namespace Ep128Emu {
         double    level;
         double    q;
       } equalizer;
+#ifdef ENABLE_MIDI_PORT
+      int         midiDevice;
+#endif
     };
     SoundConfiguration_   sound;
     bool          soundSettingsChanged;
+#ifdef ENABLE_MIDI_PORT
+    bool          midiSettingsChanged;
+#endif
     // --------
     int           keyboard[128][2];
     bool          keyboardMapChanged;
     // --------
     JoystickInput::JoystickConfiguration  joystick;
     bool          joystickSettingsChanged;
+    // --------
+    struct MouseConfiguration_ {
+      double      sensitivityX;
+      double      sensitivityY;
+    };
+    MouseConfiguration_   mouse;
+    bool          mouseSettingsChanged;
     // --------
     struct FloppyDriveSettings {
       std::string imageFile;
@@ -173,6 +191,15 @@ namespace Ep128Emu {
     bool          ideDisk2Changed;
     bool          ideDisk3Changed;
     // --------
+    struct SDExtConfiguration_ {
+      std::string imageFile;
+      // NOTE: these set memoryConfigurationChanged (hard reset required)
+      std::string romFile;
+      bool        enabled;
+    };
+    SDExtConfiguration_   sdext;
+    bool          sdCardImageChanged;
+    // --------
     struct TapeConfiguration_ {
       std::string imageFile;
       int         defaultSampleRate;
@@ -204,9 +231,22 @@ namespace Ep128Emu {
     } videoCapture;
     bool          videoCaptureSettingsChanged;
     // ----------------
+    bool          compressFiles;
+    // ----------------
+    struct {
+      int         model;
+      double      volumeL;
+      double      volumeR;
+    } sid;
+    bool          sidConfigurationChanged;
+    // ----------------
     EmulatorConfiguration(VirtualMachine& vm__,
                           VideoDisplay& videoDisplay_,
-                          AudioOutput& audioOutput_);
+                          AudioOutput& audioOutput_
+#ifdef ENABLE_MIDI_PORT
+                          , MIDIPort& midiPort_
+#endif
+                          );
     virtual ~EmulatorConfiguration();
     void applySettings();
     int convertKeyCode(int keyCode);

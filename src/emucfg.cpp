@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "system.hpp"
 #include "ep128vm.hpp"
 #include "zx128vm.hpp"
+#include "cpc464vm.hpp"
 
 #include <typeinfo>
 
@@ -80,10 +81,17 @@ namespace Ep128Emu {
 
   EmulatorConfiguration::EmulatorConfiguration(VirtualMachine& vm__,
                                                VideoDisplay& videoDisplay_,
-                                               AudioOutput& audioOutput_)
+                                               AudioOutput& audioOutput_
+#ifdef ENABLE_MIDI_PORT
+                                               , MIDIPort& midiPort_
+#endif
+                                               )
     : vm_(vm__),
       videoDisplay(videoDisplay_),
       audioOutput(audioOutput_),
+#ifdef ENABLE_MIDI_PORT
+      midiPort(midiPort_),
+#endif
       errorCallback(&defaultErrorCallback),
       errorCallbackUserData((void *) 0)
   {
@@ -95,7 +103,7 @@ namespace Ep128Emu {
                                 vmConfigurationChanged, 178125.0, 1781250.0);
     defineConfigurationVariable(*this, "vm.soundClockFrequency",
                                 vm.soundClockFrequency, 500000U,
-                                vmConfigurationChanged, 250000.0, 1000000.0);
+                                vmConfigurationChanged, 250000.0, 1250000.0);
     defineConfigurationVariable(*this, "vm.speedPercentage",
                                 vm.speedPercentage, 100U,
                                 soundSettingsChanged, 0.0, 1000.0);
@@ -253,6 +261,11 @@ namespace Ep128Emu {
     defineConfigurationVariable(*this, "sound.equalizer.q",
                                 sound.equalizer.q, 0.7071,
                                 soundSettingsChanged, 0.001, 100.0);
+#ifdef ENABLE_MIDI_PORT
+    defineConfigurationVariable(*this, "sound.midiDevice",
+                                sound.midiDevice, int(-1),
+                                midiSettingsChanged, -1.0, 1000.0);
+#endif
     // ----------------
     for (int i = 0; i < 128; i++) {
       char  tmpBuf[16];
@@ -282,6 +295,13 @@ namespace Ep128Emu {
         &configChangeCallback<double>, (void *) &joystickSettingsChanged, true);
     (*this)["joystick.autoFirePulseWidth"].setCallback(
         &configChangeCallback<double>, (void *) &joystickSettingsChanged, true);
+    // ----------------
+    defineConfigurationVariable(*this, "mouse.sensitivityX",
+                                mouse.sensitivityX, 1.0,
+                                mouseSettingsChanged, 0.5, 2.0);
+    defineConfigurationVariable(*this, "mouse.sensitivityY",
+                                mouse.sensitivityY, 1.0,
+                                mouseSettingsChanged, 0.5, 2.0);
     // ----------------
     for (int i = 0; i < 4; i++) {
       FloppyDriveSettings *floppy_ = (FloppyDriveSettings *) 0;
@@ -337,6 +357,20 @@ namespace Ep128Emu {
                                 ide.imageFile3, std::string(""),
                                 ideDisk3Changed);
     // ----------------
+#ifdef ENABLE_SDEXT
+    defineConfigurationVariable(*this, "sdext.imageFile",
+                                sdext.imageFile, std::string(""),
+                                sdCardImageChanged);
+    defineConfigurationVariable(*this, "sdext.romFile",
+                                sdext.romFile, std::string(""),
+                                memoryConfigurationChanged);
+    defineConfigurationVariable(*this, "sdext.enabled",
+                                sdext.enabled, false,
+                                memoryConfigurationChanged);
+#else
+    sdext.enabled = false;
+#endif
+    // ----------------
     defineConfigurationVariable(*this, "tape.imageFile",
                                 tape.imageFile, std::string(""),
                                 tapeFileChanged);
@@ -377,25 +411,54 @@ namespace Ep128Emu {
     defineConfigurationVariable(*this, "videoCapture.yuvFormat",
                                 videoCapture.yuvFormat, false,
                                 videoCaptureSettingsChanged);
+    // ----------------
+    // videoCaptureSettingsChanged is used only as a dummy variable here
+    defineConfigurationVariable(*this, "compressFiles",
+                                compressFiles, false,
+                                videoCaptureSettingsChanged);
+#ifdef ENABLE_RESID
+      defineConfigurationVariable(*this, "sid.3.model",
+                                  sid.model, int(0),
+                                  sidConfigurationChanged, 0.0, 2.0);
+      defineConfigurationVariable(*this, "sid.3.volumeL",
+                                  sid.volumeL, 1.0,
+                                  sidConfigurationChanged, 0.0, 2.0);
+      defineConfigurationVariable(*this, "sid.3.volumeR",
+                                  sid.volumeR, 1.0,
+                                  sidConfigurationChanged, 0.0, 2.0);
+#else
+      sid.model = 0;
+      sid.volumeL = 1.0;
+      sid.volumeR = 1.0;
+#endif
     // set machine specific defaults
     if (typeid(vm_) != typeid(Ep128::Ep128VM)) {
+      int     cpuMult = 4;
       int     sndDiv = 4;
-      if (typeid(vm_) == typeid(ZX128::ZX128VM)) {
+      if (typeid(vm_) == typeid(ZX128::ZX128VM)) {              // Spectrum
         vm.cpuClockFrequency = 3546896U;
         vm.videoClockFrequency = 886724U;
         vm.soundClockFrequency = 221681U;
         display.quality = 1;
         (*this)["memory.ram.size"].setRange(16.0, 128.0, 16.0);
       }
-      else {                            // CPC
+      else if (typeid(vm_) == typeid(CPC464::CPC464VM)) {       // CPC
         vm.cpuClockFrequency = 4000000U;
         vm.videoClockFrequency = 1000000U;
         vm.soundClockFrequency = 125000U;
         (*this)["memory.ram.size"].setRange(64.0, 576.0, 64.0);
         sndDiv = 8;
       }
+      else {                                                    // TVC
+        vm.cpuClockFrequency = 3125000U;
+        vm.videoClockFrequency = 1562500U;
+        vm.soundClockFrequency = 390625U;
+        (*this)["memory.ram.size"].setRange(48.0, 128.0, 16.0);
+        cpuMult = 2;
+      }
       (*this)["vm.cpuClockFrequency"].setRange(
-          1600000.0, 8000000.0, double(sndDiv << 2));
+          double(400000 * cpuMult), double(2000000 * cpuMult),
+          double(cpuMult * sndDiv));
       (*this)["vm.videoClockFrequency"].setRange(
           400000.0, 2000000.0, double(sndDiv));
       (*this)["vm.soundClockFrequency"].setRange(
@@ -413,16 +476,22 @@ namespace Ep128Emu {
   {
     if (vmConfigurationChanged) {
       if (typeid(vm_) != typeid(Ep128::Ep128VM)) {
-        if (typeid(vm_) == typeid(ZX128::ZX128VM)) {
+        if (typeid(vm_) == typeid(ZX128::ZX128VM)) {            // Spectrum
           vm.soundClockFrequency = (vm.videoClockFrequency + 2U) >> 2;
           vm.videoClockFrequency = vm.soundClockFrequency << 2;
+          vm.cpuClockFrequency = vm.videoClockFrequency << 2;
         }
-        else {                          // CPC
+        else if (typeid(vm_) == typeid(CPC464::CPC464VM)) {     // CPC
           vm.soundClockFrequency = (vm.videoClockFrequency + 4U) >> 3;
           vm.videoClockFrequency = vm.soundClockFrequency << 3;
+          vm.cpuClockFrequency = vm.videoClockFrequency << 2;
           vm.enableFileIO = false;
         }
-        vm.cpuClockFrequency = vm.videoClockFrequency << 2;
+        else {                                                  // TVC
+          vm.soundClockFrequency = (vm.videoClockFrequency + 2U) >> 2;
+          vm.videoClockFrequency = vm.soundClockFrequency << 2;
+          vm.cpuClockFrequency = vm.videoClockFrequency << 1;
+        }
         vm.enableMemoryTimingEmulation = true;
       }
       // assume none of these will throw exceptions
@@ -445,16 +514,20 @@ namespace Ep128Emu {
     if (memoryConfigurationChanged) {
       if (typeid(vm_) != typeid(Ep128::Ep128VM)) {
         memory.configFile.clear();
-        if (typeid(vm_) == typeid(ZX128::ZX128VM)) {
+        if (typeid(vm_) == typeid(ZX128::ZX128VM)) {            // Spectrum
           memory.ram.size = (memory.ram.size < 32 ?
                              16 : (memory.ram.size < 88 ? 48 : 128));
         }
-        else {                          // CPC
+        else if (typeid(vm_) == typeid(CPC464::CPC464VM)) {     // CPC
           memory.ram.size = (memory.ram.size < 96 ?
                              64 : (memory.ram.size < 160 ?
                                    128 : (memory.ram.size < 256 ?
                                           192 : (memory.ram.size < 448 ?
                                                  320 : 576))));
+        }
+        else {                                                  // TVC
+          memory.ram.size = (memory.ram.size < 64 ?
+                             48 : (memory.ram.size < 104 ? 80 : 128));
         }
       }
       if (memory.configFile.length() > 0) {
@@ -485,13 +558,18 @@ namespace Ep128Emu {
             }
             segNum = segNum | 0x80;
           }
-          else {
+          else if (typeid(vm_) == typeid(CPC464::CPC464VM)) {
             if (i >= 8 && i != 16) {
               memory.rom[i].file.clear();
               memory.rom[i].offset = 0;
               continue;
             }
             segNum = segNum + uint8_t(i < 8 ? 0xC0 : 0x70);
+          }
+          else if (i > 4) {                     // TVC
+            memory.rom[i].file.clear();
+            memory.rom[i].offset = 0;
+            continue;
           }
           try {
             vm_.loadROMSegment(segNum, memory.rom[i].file.c_str(),
@@ -506,6 +584,16 @@ namespace Ep128Emu {
         }
         memoryConfigurationChanged = false;
       }
+#ifdef ENABLE_SDEXT
+      try {
+        vm_.configureSDCard(sdext.enabled, sdext.romFile);
+      }
+      catch (Exception& e) {
+        sdext.romFile.clear();
+        vm_.configureSDCard(sdext.enabled, sdext.romFile);
+        errorCallback(errorCallbackUserData, e.what());
+      }
+#endif
     }
     if (displaySettingsChanged) {
       // assume that changing the display settings will not fail
@@ -572,6 +660,19 @@ namespace Ep128Emu {
       }
       soundSettingsChanged = false;
     }
+#ifdef ENABLE_MIDI_PORT
+    if (midiSettingsChanged) {
+      try {
+        midiPort.openDevice(sound.midiDevice);
+      }
+      catch (Exception& e) {
+        sound.midiDevice = -1;
+        midiPort.openDevice(-1);
+        errorCallback(errorCallbackUserData, e.what());
+      }
+      midiSettingsChanged = false;
+    }
+#endif
     if (keyboardMapChanged) {
       keyboardMap.clear();
       for (int i = 0; i < 128; i++) {
@@ -582,110 +683,61 @@ namespace Ep128Emu {
       }
       keyboardMapChanged = false;
     }
-    if (floppyAChanged) {
+    if (mouseSettingsChanged)
+      mouseSettingsChanged = false;
+    for (int i = 0; i < 4; i++) {
+      FloppyDriveSettings&  cfg = (i == 0 ? floppy.a :
+                                   (i == 1 ? floppy.b :
+                                    (i == 2 ? floppy.c : floppy.d)));
+      bool&   isChanged = (i == 0 ? floppyAChanged :
+                           (i == 1 ? floppyBChanged :
+                            (i == 2 ? floppyCChanged : floppyDChanged)));
+      if (isChanged) {
+        try {
+          vm_.setDiskImageFile(i, cfg.imageFile,
+                               cfg.tracks, cfg.sides, cfg.sectorsPerTrack);
+        }
+        catch (Exception& e) {
+          cfg.imageFile.clear();
+          vm_.setDiskImageFile(i, cfg.imageFile,
+                               cfg.tracks, cfg.sides, cfg.sectorsPerTrack);
+          errorCallback(errorCallbackUserData, e.what());
+        }
+        isChanged = false;
+      }
+    }
+    for (int i = 0; i < 4; i++) {
+      std::string&  imageFile = (i == 0 ? ide.imageFile0 :
+                                 (i == 1 ? ide.imageFile1 :
+                                  (i == 2 ? ide.imageFile2 : ide.imageFile3)));
+      bool&   isChanged = (i == 0 ? ideDisk0Changed :
+                           (i == 1 ? ideDisk1Changed :
+                            (i == 2 ? ideDisk2Changed : ideDisk3Changed)));
+      if (isChanged) {
+        try {
+          vm_.setDiskImageFile(i + 4, imageFile, -1, -1, -1);
+        }
+        catch (Exception& e) {
+          imageFile.clear();
+          vm_.setDiskImageFile(i + 4, imageFile, -1, -1, -1);
+          errorCallback(errorCallbackUserData, e.what());
+        }
+        isChanged = false;
+      }
+    }
+#ifdef ENABLE_SDEXT
+    if (sdCardImageChanged) {
       try {
-        vm_.setDiskImageFile(0, floppy.a.imageFile,
-                             floppy.a.tracks, floppy.a.sides,
-                             floppy.a.sectorsPerTrack);
+        vm_.setDiskImageFile(8, sdext.imageFile, -1, -1, -1);
       }
       catch (Exception& e) {
-        floppy.a.imageFile.clear();
-        vm_.setDiskImageFile(0, floppy.a.imageFile,
-                             floppy.a.tracks, floppy.a.sides,
-                             floppy.a.sectorsPerTrack);
+        sdext.imageFile.clear();
+        vm_.setDiskImageFile(8, sdext.imageFile, -1, -1, -1);
         errorCallback(errorCallbackUserData, e.what());
       }
-      floppyAChanged = false;
+      sdCardImageChanged = false;
     }
-    if (floppyBChanged) {
-      try {
-        vm_.setDiskImageFile(1, floppy.b.imageFile,
-                             floppy.b.tracks, floppy.b.sides,
-                             floppy.b.sectorsPerTrack);
-      }
-      catch (Exception& e) {
-        floppy.b.imageFile.clear();
-        vm_.setDiskImageFile(1, floppy.b.imageFile,
-                             floppy.b.tracks, floppy.b.sides,
-                             floppy.b.sectorsPerTrack);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      floppyBChanged = false;
-    }
-    if (floppyCChanged) {
-      try {
-        vm_.setDiskImageFile(2, floppy.c.imageFile,
-                             floppy.c.tracks, floppy.c.sides,
-                             floppy.c.sectorsPerTrack);
-      }
-      catch (Exception& e) {
-        floppy.c.imageFile.clear();
-        vm_.setDiskImageFile(2, floppy.c.imageFile,
-                             floppy.c.tracks, floppy.c.sides,
-                             floppy.c.sectorsPerTrack);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      floppyCChanged = false;
-    }
-    if (floppyDChanged) {
-      try {
-        vm_.setDiskImageFile(3, floppy.d.imageFile,
-                             floppy.d.tracks, floppy.d.sides,
-                             floppy.d.sectorsPerTrack);
-      }
-      catch (Exception& e) {
-        floppy.d.imageFile.clear();
-        vm_.setDiskImageFile(3, floppy.d.imageFile,
-                             floppy.d.tracks, floppy.d.sides,
-                             floppy.d.sectorsPerTrack);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      floppyDChanged = false;
-    }
-    if (ideDisk0Changed) {
-      try {
-        vm_.setDiskImageFile(4, ide.imageFile0, -1, -1, -1);
-      }
-      catch (Exception& e) {
-        ide.imageFile0.clear();
-        vm_.setDiskImageFile(4, ide.imageFile0, -1, -1, -1);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      ideDisk0Changed = false;
-    }
-    if (ideDisk1Changed) {
-      try {
-        vm_.setDiskImageFile(5, ide.imageFile1, -1, -1, -1);
-      }
-      catch (Exception& e) {
-        ide.imageFile1.clear();
-        vm_.setDiskImageFile(5, ide.imageFile1, -1, -1, -1);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      ideDisk1Changed = false;
-    }
-    if (ideDisk2Changed) {
-      try {
-        vm_.setDiskImageFile(6, ide.imageFile2, -1, -1, -1);
-      }
-      catch (Exception& e) {
-        ide.imageFile2.clear();
-        vm_.setDiskImageFile(6, ide.imageFile2, -1, -1, -1);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      ideDisk2Changed = false;
-    }
-    if (ideDisk3Changed) {
-      try {
-        vm_.setDiskImageFile(7, ide.imageFile3, -1, -1, -1);
-      }
-      catch (Exception& e) {
-        ide.imageFile3.clear();
-        vm_.setDiskImageFile(7, ide.imageFile3, -1, -1, -1);
-        errorCallback(errorCallbackUserData, e.what());
-      }
-      ideDisk3Changed = false;
-    }
+#endif
     if (tapeSettingsChanged) {
       vm_.setDefaultTapeSampleRate(tape.defaultSampleRate);
       vm_.setForceTapeMotorOn(tape.forceMotorOn);
@@ -731,6 +783,12 @@ namespace Ep128Emu {
     if (videoCaptureSettingsChanged) {
       videoCaptureSettingsChanged = false;
     }
+#ifdef ENABLE_RESID
+    if (sidConfigurationChanged) {
+      sidConfigurationChanged = false;
+      vm_.setSIDConfiguration(3, sid.model, sid.volumeL, sid.volumeR);
+    }
+#endif
   }
 
   int EmulatorConfiguration::convertKeyCode(int keyCode)

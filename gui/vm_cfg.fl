@@ -1,5 +1,5 @@
 # data file for the Fltk User Interface Designer (fluid)
-version 1.0109 
+version 1.0110 
 do_not_include_H_from_C 
 header_name {.hpp} 
 code_name {.cpp}
@@ -52,7 +52,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
 }}
         xywh {325 415 60 25} selection_color 50
       }
-      Fl_Tabs {} {open
+      Fl_Tabs vmConfigurationTabs {open
         xywh {10 10 380 395}
       } {
         Fl_Group {} {
@@ -102,7 +102,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
   }
   o->value(double(gui.config.vm.soundClockFrequency));
 }}
-              xywh {30 140 120 25} align 8 when 4 minimum 50000 maximum 1e+06 step 1 value 500000
+              xywh {30 140 120 25} align 8 when 4 minimum 50000 maximum 1.25e+06 step 1 value 500000
               code0 {o->cursor_color(Fl_Color(3));}
             }
             Fl_Light_Button enableMemoryTimingValuator {
@@ -111,7 +111,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
   gui.config.vm.enableMemoryTimingEmulation = (o->value() != 0);
   gui.config.vmConfigurationChanged = true;
 }}
-              xywh {30 175 240 25} value 1 color 50 selection_color 3
+              xywh {30 175 250 25} value 1 color 50 selection_color 3
             }
           }
           Fl_Group {} {
@@ -124,12 +124,20 @@ class Ep128EmuGUI_MachineConfigWindow {open
   gui.config.vm.enableFileIO = (o->value() != 0);
   gui.config.vmConfigurationChanged = true;
 }}
-              tooltip {If enabled, the emulated machine can directly access files in the working directory if the ROM module for this function is loaded (epfileio.rom to segment 10)} xywh {30 248 240 25} color 50 selection_color 3
+              tooltip {If enabled, the emulated machine can directly access files in the working directory if the ROM module for this function is loaded (epfileio.rom to segment 10)} xywh {30 248 165 25} color 50 selection_color 3
+            }
+            Fl_Light_Button vmEnableSDExtValuator {
+              label {Enable SD card}
+              callback {{
+  gui.config.sdext.enabled = (o->value() != 0);
+  gui.config.memoryConfigurationChanged = true;
+}}
+              tooltip {Enable experimental SD card emulation} xywh {215 248 155 25} color 50 selection_color 3
             }
           }
           Fl_Group {} {
             label {Video capture settings} open
-            xywh {20 297 360 98} box ENGRAVED_FRAME align 21
+            xywh {20 297 360 63} box ENGRAVED_FRAME align 21
           } {
             Fl_Value_Input videoCaptureFrameRateValuator {
               label {Frame rate}
@@ -137,17 +145,24 @@ class Ep128EmuGUI_MachineConfigWindow {open
   gui.config.videoCapture.frameRate = int(o->clamp(o->value()) + 0.5);
   gui.config.videoCaptureSettingsChanged = true;
 }}
-              tooltip {Number of frames per second for video recording; the allowed settings are 24, 25, 30, 32, 40, 48, 50, and 60} xywh {30 322 120 25} align 8 when 4 minimum 24 maximum 60 step 1 value 50
+              tooltip {Number of frames per second for video recording; the allowed settings are 24, 25, 30, 32, 40, 48, 50, and 60} xywh {30 322 80 25} align 8 when 4 minimum 24 maximum 60 step 1 value 50
               code0 {o->cursor_color(Fl_Color(3));}
             }
-            Fl_Light_Button videoCaptureYUVFormatValuator {
-              label {Low resolution YUV format}
+            Fl_Choice videoCaptureYUVFormatValuator {
               callback {{
   gui.config.videoCapture.yuvFormat = (o->value() != 0);
   gui.config.videoCaptureSettingsChanged = true;
 }}
-              tooltip {Write AVI video data in 384x288 YV12 format instead of 768x576 RLE8} xywh {30 357 240 25} color 50 selection_color 3
-            }
+              tooltip {AVI video codec, RLE8 is better but less supported by other software} xywh {215 322 155 25} down_box BORDER_BOX
+              code0 {o->add("RLE8 768x576|YV12 384x288");}
+            } {}
+          }
+          Fl_Light_Button vmCompressFilesValuator {
+            label {Compress snapshot files}
+            callback {{
+  gui.config.compressFiles = (o->value() != 0);
+}}
+            tooltip {Save snapshot and demo files in compressed format (not recommended on slow machines)} xywh {20 370 260 25} color 50 selection_color 3
           }
         }
         Fl_Group {} {
@@ -167,7 +182,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
             tooltip {epmemcfg format memory configuration file (see README; if specified, overrides the RAM/ROM settings below)} xywh {20 45 210 25}
           }
           Fl_Button {} {
-            label {...}
+            label {@fileopen}
             callback {{
   try {
     std::string tmp;
@@ -183,7 +198,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
   }
   updateWindow();
 }}
-            xywh {235 45 25 25}
+            xywh {235 45 25 25} labelcolor 3
           }
           Fl_Box {} {
             label {Configuration file}
@@ -208,7 +223,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
             xywh {20 130 360 265} box DOWN_BOX color 48 align 5
           } {
             Fl_Group {} {open
-              xywh {25 135 325 755} box FLAT_BOX color 48
+              xywh {25 135 325 805} box FLAT_BOX color 48
             } {
               Fl_Box {} {
                 label Segment
@@ -234,11 +249,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x00);
 }}
-                xywh {245 165 25 25} selection_color 50
+                xywh {245 165 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM00OffsetValuator {
                 callback {{
@@ -261,11 +276,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x01);
 }}
-                xywh {245 195 25 25} selection_color 50
+                xywh {245 195 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM01OffsetValuator {
                 callback {{
@@ -288,11 +303,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x02);
 }}
-                xywh {245 225 25 25} selection_color 50
+                xywh {245 225 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM02OffsetValuator {
                 callback {{
@@ -315,11 +330,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x03);
 }}
-                xywh {245 255 25 25} selection_color 50
+                xywh {245 255 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM03OffsetValuator {
                 callback {{
@@ -342,11 +357,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x04);
 }}
-                xywh {245 285 25 25} selection_color 50
+                xywh {245 285 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM04OffsetValuator {
                 callback {{
@@ -369,11 +384,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x05);
 }}
-                xywh {245 315 25 25} selection_color 50
+                xywh {245 315 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM05OffsetValuator {
                 callback {{
@@ -396,11 +411,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x06);
 }}
-                xywh {245 345 25 25} selection_color 50
+                xywh {245 345 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM06OffsetValuator {
                 callback {{
@@ -423,11 +438,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x07);
 }}
-                xywh {245 375 25 25} selection_color 50
+                xywh {245 375 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM07OffsetValuator {
                 callback {{
@@ -450,11 +465,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x10);
 }}
-                xywh {245 405 25 25} selection_color 50
+                xywh {245 405 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM10OffsetValuator {
                 callback {{
@@ -477,11 +492,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x11);
 }}
-                xywh {245 435 25 25} selection_color 50
+                xywh {245 435 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM11OffsetValuator {
                 callback {{
@@ -504,11 +519,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x12);
 }}
-                xywh {245 465 25 25} selection_color 50
+                xywh {245 465 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM12OffsetValuator {
                 callback {{
@@ -531,11 +546,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x13);
 }}
-                xywh {245 495 25 25} selection_color 50
+                xywh {245 495 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM13OffsetValuator {
                 callback {{
@@ -558,11 +573,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x20);
 }}
-                xywh {245 525 25 25} selection_color 50
+                xywh {245 525 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM20OffsetValuator {
                 callback {{
@@ -585,11 +600,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x21);
 }}
-                xywh {245 555 25 25} selection_color 50
+                xywh {245 555 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM21OffsetValuator {
                 callback {{
@@ -612,11 +627,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x22);
 }}
-                xywh {245 585 25 25} selection_color 50
+                xywh {245 585 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM22OffsetValuator {
                 callback {{
@@ -639,11 +654,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x23);
 }}
-                xywh {245 615 25 25} selection_color 50
+                xywh {245 615 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM23OffsetValuator {
                 callback {{
@@ -666,11 +681,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x30);
 }}
-                xywh {245 645 25 25} selection_color 50
+                xywh {245 645 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM30OffsetValuator {
                 callback {{
@@ -693,11 +708,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x31);
 }}
-                xywh {245 675 25 25} selection_color 50
+                xywh {245 675 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM31OffsetValuator {
                 callback {{
@@ -720,11 +735,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x32);
 }}
-                xywh {245 705 25 25} selection_color 50
+                xywh {245 705 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM32OffsetValuator {
                 callback {{
@@ -747,11 +762,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x33);
 }}
-                xywh {245 735 25 25} selection_color 50
+                xywh {245 735 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM33OffsetValuator {
                 callback {{
@@ -774,11 +789,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x40);
 }}
-                xywh {245 765 25 25} selection_color 50
+                xywh {245 765 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM40OffsetValuator {
                 callback {{
@@ -801,11 +816,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x41);
 }}
-                xywh {245 795 25 25} selection_color 50
+                xywh {245 795 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM41OffsetValuator {
                 callback {{
@@ -828,11 +843,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x42);
 }}
-                xywh {245 825 25 25} selection_color 50
+                xywh {245 825 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM42OffsetValuator {
                 callback {{
@@ -855,11 +870,11 @@ class Ep128EmuGUI_MachineConfigWindow {open
                 code0 {o->cursor_color(Fl_Color(3));}
               }
               Fl_Button {} {
-                label {...}
+                label {@fileopen}
                 callback {{
   browseROMImageFile(0x43);
 }}
-                xywh {245 855 25 25} selection_color 50
+                xywh {245 855 25 25} selection_color 50 labelcolor 3
               }
               Fl_Value_Input memoryROM43OffsetValuator {
                 callback {{
@@ -869,6 +884,42 @@ class Ep128EmuGUI_MachineConfigWindow {open
 }}
                 xywh {280 855 65 25} when 4 maximum 999999 step 1
                 code0 {o->cursor_color(Fl_Color(3));}
+              }
+              Fl_Input sdExtROMFileNameValuator {
+                label {SD card 64K flash ROM image}
+                callback {{
+  try {
+    gui.config.sdext.romFile = o->value();
+    gui.config.memoryConfigurationChanged = true;
+  }
+  catch (std::exception& e) {
+    gui.errorMessage(e.what());
+  }
+}}
+                xywh {30 905 285 25} align 5
+                code0 {o->cursor_color(Fl_Color(3));}
+              }
+              Fl_Button sdExtROMFileNameButton {
+                label {@fileopen}
+                callback {{
+  try {
+    std::string tmp;
+    if (gui.browseFile(tmp, gui.romImageDirectory,
+                       "ROM image files\\t*.rom",
+                       Fl_Native_File_Chooser::BROWSE_FILE,
+                       "Select flash ROM image file")) {
+      if (tmp != gui.config.sdext.romFile) {
+        gui.config.sdext.romFile = tmp;
+        gui.config.memoryConfigurationChanged = true;
+        sdExtROMFileNameValuator->value(gui.config.sdext.romFile.c_str());
+      }
+    }
+  }
+  catch (std::exception& e) {
+    gui.errorMessage(e.what());
+  }
+}}
+                xywh {320 905 25 25} selection_color 50 labelcolor 3
               }
             }
           }
@@ -940,6 +991,41 @@ class Ep128EmuGUI_MachineConfigWindow {open
             }
           }
         }
+        Fl_Group sidConfigurationGroup {
+          label SID open
+          xywh {10 35 380 370} hide
+        } {
+          Fl_Group {} {
+            label {SID emulation settings} open
+            xywh {20 45 360 135} box ENGRAVED_FRAME align 21
+          } {
+            Fl_Choice sidModelValuator {
+              label Model
+              callback {{
+  gui.config.sid.model = o->value();
+  gui.config.sidConfigurationChanged = true;
+}}
+              xywh {30 70 145 25} down_box BORDER_BOX align 8
+              code0 {o->add("Disabled|MOS 6581|MOS 8580");}
+            } {}
+            Fl_Value_Slider sidVolumeLValuator {
+              label {Left volume}
+              callback {{
+  gui.config.sid.volumeL = o->value();
+  gui.config.sidConfigurationChanged = true;
+}}
+              xywh {30 106 145 23} type Horizontal color 47 selection_color 52 align 8 maximum 2 step 0.04 value 1
+            }
+            Fl_Value_Slider sidVolumeRValuator {
+              label {Right volume}
+              callback {{
+  gui.config.sid.volumeR = o->value();
+  gui.config.sidConfigurationChanged = true;
+}}
+              xywh {30 141 145 23} type Horizontal color 47 selection_color 52 align 8 maximum 2 step 0.04 value 1
+            }
+          }
+        }
       }
     }
   }
@@ -976,8 +1062,10 @@ class Ep128EmuGUI_MachineConfigWindow {open
   vmSoundClockFrequencyValuator->value(double(gui.config.vm.soundClockFrequency));
   enableMemoryTimingValuator->value(gui.config.vm.enableMemoryTimingEmulation ? 1 : 0);
   vmEnableFileIOValuator->value(gui.config.vm.enableFileIO ? 1 : 0);
+  vmEnableSDExtValuator->value(gui.config.sdext.enabled ? 1 : 0);
   videoCaptureFrameRateValuator->value(double(gui.config.videoCapture.frameRate));
   videoCaptureYUVFormatValuator->value(gui.config.videoCapture.yuvFormat ? 1 : 0);
+  vmCompressFilesValuator->value(gui.config.compressFiles ? 1 : 0);
   if (gui.config.memory.configFile.length() > 0) {
     memoryRAMSizeValuator->deactivate();
     memoryROMImagesScroll->deactivate();
@@ -1036,12 +1124,18 @@ class Ep128EmuGUI_MachineConfigWindow {open
   memoryROM42OffsetValuator->value(double(gui.config.memory.rom[0x42].offset));
   memoryROM43FileNameValuator->value(gui.config.memory.rom[0x43].file.c_str());
   memoryROM43OffsetValuator->value(double(gui.config.memory.rom[0x43].offset));
+  sdExtROMFileNameValuator->value(gui.config.sdext.romFile.c_str());
   tapeDefaultSampleRateValuator->value(double(gui.config.tape.defaultSampleRate));
   tapeForceMotorOnValuator->value(gui.config.tape.forceMotorOn ? 1 : 0);
   tapeChannelValuator->value(double(gui.config.tape.soundFileChannel));
   tapeEnableFilterValuator->value(gui.config.tape.enableSoundFileFilter ? 1 : 0);
   tapeMinFreqValuator->value(gui.config.tape.soundFileFilterMinFreq);
   tapeMaxFreqValuator->value(gui.config.tape.soundFileFilterMaxFreq);
+\#ifdef ENABLE_RESID
+  sidModelValuator->value(gui.config.sid.model);
+  sidVolumeLValuator->value(gui.config.sid.volumeL);
+  sidVolumeRValuator->value(gui.config.sid.volumeR);
+\#endif
 }} {}
   }
   Function {setROMImageFile(uint8_t segment_, const std::string& fileName_)} {open private return_type void
@@ -1055,7 +1149,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
     cv = fileName_;
     std::string fName = std::string(cv);
     if (fName.length() > 0) {
-      std::FILE *f = std::fopen(fName.c_str(), "rb");
+      std::FILE *f = Ep128Emu::fileOpen(fName.c_str(), "rb");
       long    fSize = 0L;
       if (f) {
         if (std::fseek(f, 0L, SEEK_END) >= 0)
@@ -1065,7 +1159,7 @@ class Ep128EmuGUI_MachineConfigWindow {open
       }
       long    offs = long(gui.config.memory.rom[segment_].offset);
       bool    updateFlag = false;
-      while ((offs + 32767L) < fSize && (segment_ & 0x03) != 0x03) {
+      while ((offs + 16394L) < fSize && (segment_ & 0x03) != 0x03) {
         segment_++;
         offs = offs + 16384L;
         updateFlag = true;

@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 #include "ep128vm.hpp"
 #include "zx128vm.hpp"
 #include "cpc464vm.hpp"
+#include "tvc64vm.hpp"
 #include "system.hpp"
 #include "guicolor.hpp"
 
@@ -28,22 +29,20 @@
 
 #ifdef WIN32
 #  include <windows.h>
+#else
+#  include <dirent.h>
 #endif
 
+static void cfgErrorFunc(void *userData, const char *msg)
+{
+  (void) userData;
 #ifndef WIN32
-static void cfgErrorFunc(void *userData, const char *msg)
-{
-  (void) userData;
   std::fprintf(stderr, "WARNING: %s\n", msg);
-}
 #else
-static void cfgErrorFunc(void *userData, const char *msg)
-{
-  (void) userData;
   (void) MessageBoxA((HWND) 0, (LPCSTR) msg, (LPCSTR) "ep128emu error",
                      MB_OK | MB_ICONWARNING);
-}
 #endif
+}
 
 int8_t getSnapshotType(const Ep128Emu::File& f)
 {
@@ -53,10 +52,8 @@ int8_t getSnapshotType(const Ep128Emu::File& f)
   if (buf[0] != 0x45 || buf[1] != 0x50 || buf[2] != 0x80)
     throw Ep128Emu::Exception("invalid snapshot file");
   // check LSB of chunk type (0x455080xx, see src/fileio.hpp)
-  if ((buf[3] & 0xF0) == 0x20)          // Spectrum
-    return 1;
-  if ((buf[3] & 0xF0) == 0x30)          // CPC
-    return 2;
+  if ((buf[3] & 0xF0) >= 0x20 && (buf[3] & 0xF0) <= 0x40)
+    return int8_t(((buf[3] & 0xF0) >> 4) - 1);  // Spectrum, CPC, TVC
   if (buf[3] >= 0x0B)                   // Plus/4
     throw Ep128Emu::Exception("unsupported machine type in snapshot file");
   return 0;                             // Enterprise
@@ -67,6 +64,9 @@ int main(int argc, char **argv)
   Fl_Window *w = (Fl_Window *) 0;
   Ep128Emu::VirtualMachine  *vm = (Ep128Emu::VirtualMachine *) 0;
   Ep128Emu::AudioOutput     *audioOutput = (Ep128Emu::AudioOutput *) 0;
+#ifdef ENABLE_MIDI_PORT
+  Ep128Emu::MIDIPort        *midiPort = (Ep128Emu::MIDIPort *) 0;
+#endif
   Ep128Emu::EmulatorConfiguration   *config =
       (Ep128Emu::EmulatorConfiguration *) 0;
   Ep128Emu::VMThread        *vmThread = (Ep128Emu::VMThread *) 0;
@@ -75,15 +75,36 @@ int main(int argc, char **argv)
   Ep128Emu::File  *snapshotFile = (Ep128Emu::File *) 0;
   int       snapshotNameIndex = 0;
   int       colorScheme = 0;
-  int8_t    machineType = -1;           // 0: EP (default), 1: ZX, 2: CPC
+  int8_t    machineType = -1;   // 0: EP (default), 1: ZX, 2: CPC, 3: TVC
   int8_t    retval = 0;
+#ifdef DISABLE_OPENGL_DISPLAY
+  bool      glEnabled = false;
+#else
   bool      glEnabled = true;
   bool      glCanDoSingleBuf = false;
   bool      glCanDoDoubleBuf = false;
+#endif
   bool      configLoaded = false;
 
 #ifdef WIN32
   timeBeginPeriod(1U);
+#else
+  // set machine type if the program name in argv[0] begins with
+  // "zx", "cpc" or "tvc"
+  for (size_t i = 0; argv[0][i] != '\0'; i++) {
+    if (i == 0 || argv[0][i] == '/') {
+      if (argv[0][i] == '/')
+        i++;
+      if (std::strncmp(argv[0] + i, "zx", 2) == 0)
+        machineType = 1;
+      else if (std::strncmp(argv[0] + i, "cpc", 3) == 0)
+        machineType = 2;
+      else if (std::strncmp(argv[0] + i, "tvc", 3) == 0)
+        machineType = 3;
+      else
+        machineType = -1;
+    }
+  }
 #endif
   try {
     // find out machine type to be emulated
@@ -103,20 +124,22 @@ int main(int argc, char **argv)
         colorScheme = (colorScheme >= 0 && colorScheme <= 3 ? colorScheme : 0);
       }
       else if (std::strcmp(argv[i], "-ep128") == 0) {
-        cfgFileName = "ep128cfg.dat";
         machineType = 0;
       }
       else if (std::strcmp(argv[i], "-zx") == 0) {
-        cfgFileName = "zx128cfg.dat";
         machineType = 1;
       }
       else if (std::strcmp(argv[i], "-cpc") == 0) {
-        cfgFileName = "cpc_cfg.dat";
         machineType = 2;
       }
+      else if (std::strcmp(argv[i], "-tvc") == 0) {
+        machineType = 3;
+      }
+#ifndef DISABLE_OPENGL_DISPLAY
       else if (std::strcmp(argv[i], "-opengl") == 0) {
         glEnabled = true;
       }
+#endif
       else if (std::strcmp(argv[i], "-no-opengl") == 0) {
         glEnabled = false;
       }
@@ -129,7 +152,7 @@ int main(int argc, char **argv)
                      "    -h | -help | --help "
                      "print this message\n");
         std::fprintf(stderr,
-                     "    -ep128 | -zx | -cpc "
+                     "    -ep128 | -zx | -cpc | -tvc\n                        "
                      "select the type of machine to be emulated\n");
         std::fprintf(stderr,
                      "    -cfg <FILENAME>     "
@@ -137,9 +160,11 @@ int main(int argc, char **argv)
         std::fprintf(stderr,
                      "    -snapshot <FNAME>   "
                      "load snapshot or demo file on startup\n");
+#ifndef DISABLE_OPENGL_DISPLAY
         std::fprintf(stderr,
                      "    -opengl             "
                      "use OpenGL video driver (this is the default)\n");
+#endif
         std::fprintf(stderr,
                      "    -no-opengl          "
                      "use software video driver\n");
@@ -162,6 +187,7 @@ int main(int argc, char **argv)
     Fl::lock();
     Ep128Emu::setGUIColorScheme(colorScheme);
     audioOutput = new Ep128Emu::AudioOutput_PortAudio();
+#ifndef DISABLE_OPENGL_DISPLAY
     if (glEnabled) {
       glCanDoSingleBuf = bool(Fl_Gl_Window::can_do(FL_RGB | FL_SINGLE));
       glCanDoDoubleBuf = bool(Fl_Gl_Window::can_do(FL_RGB | FL_DOUBLE));
@@ -170,6 +196,7 @@ int main(int argc, char **argv)
       else
         glEnabled = false;
     }
+#endif
     if (!glEnabled)
       w = new Ep128Emu::FLTKDisplay(32, 32, 384, 288, "");
     w->end();
@@ -179,49 +206,131 @@ int main(int argc, char **argv)
         machineType = getSnapshotType(*snapshotFile);
     }
     if (machineType == 1) {
+      cfgFileName = "zx128cfg.dat";
       vm = new ZX128::ZX128VM(*(dynamic_cast<Ep128Emu::VideoDisplay *>(w)),
                               *audioOutput);
     }
     else if (machineType == 2) {
+      cfgFileName = "cpc_cfg.dat";
       vm = new CPC464::CPC464VM(*(dynamic_cast<Ep128Emu::VideoDisplay *>(w)),
                                 *audioOutput);
+    }
+    else if (machineType == 3) {
+      cfgFileName = "tvc_cfg.dat";
+      vm = new TVC64::TVC64VM(*(dynamic_cast<Ep128Emu::VideoDisplay *>(w)),
+                              *audioOutput);
     }
     else {
       vm = new Ep128::Ep128VM(*(dynamic_cast<Ep128Emu::VideoDisplay *>(w)),
                               *audioOutput);
     }
+#ifdef ENABLE_MIDI_PORT
+    midiPort = new Ep128Emu::MIDIPort(*vm);
+#endif
     config = new Ep128Emu::EmulatorConfiguration(
-        *vm, *(dynamic_cast<Ep128Emu::VideoDisplay *>(w)), *audioOutput);
+        *vm, *(dynamic_cast<Ep128Emu::VideoDisplay *>(w)), *audioOutput
+#ifdef ENABLE_MIDI_PORT
+        , *midiPort
+#endif
+        );
     config->setErrorCallback(&cfgErrorFunc, (void *) 0);
     // load base configuration (if available)
     {
       Ep128Emu::File  *f = (Ep128Emu::File *) 0;
+#ifndef WIN32
+      std::string baseDir(Ep128Emu::getEp128EmuHomeDirectory());
+      bool    makecfgNeeded = false;
+      bool    makecfgDone = false;
+#endif
       try {
         try {
           f = new Ep128Emu::File(cfgFileName, true);
         }
         catch (Ep128Emu::Exception& e) {
-          std::string cmdLine = "\"";
-          cmdLine += argv[0];
-          size_t  i = cmdLine.length();
-          while (i > 1) {
-            i--;
-            if (cmdLine[i] == '/' || cmdLine[i] == '\\') {
-              i++;
+#ifndef WIN32
+          makecfgNeeded = true;
+        }
+        while (true) {
+          if (makecfgNeeded)
+#endif
+          {
+            std::string cmdLine = "\"";
+            cmdLine += argv[0];
+            size_t  i = cmdLine.length();
+            while (i > 1) {
+              i--;
+              if (cmdLine[i] == '/' || cmdLine[i] == '\\') {
+                i++;
+                break;
+              }
+            }
+            cmdLine.resize(i);
+#ifdef WIN32
+            cmdLine += "makecfg\"";
+#else
+#  ifndef __APPLE__
+            cmdLine += "epmakecfg\" -c \"";
+#  else
+            cmdLine += "epmakecfg\" -f \"";
+#  endif
+            cmdLine += baseDir;
+            cmdLine += '"';
+            makecfgDone = true;
+#endif
+            std::system(cmdLine.c_str());
+          }
+          f = new Ep128Emu::File(cfgFileName, true);
+#ifndef WIN32
+          config->registerChunkType(*f);
+          f->processAllChunks();
+          delete f;
+          f = (Ep128Emu::File *) 0;
+          if (makecfgDone)
+            break;
+          // check if there is a valid ROM image on segment 0x00
+          makecfgNeeded = config->memory.rom[0x00].file.empty();
+          if (!makecfgNeeded) {
+            std::FILE *tmp =
+                Ep128Emu::fileOpen(config->memory.rom[0x00].file.c_str(), "rb");
+            makecfgNeeded = (!tmp);
+            if (!makecfgNeeded) {
+              std::fclose(tmp);
               break;
             }
+            // get install directory from existing configuration
+            std::string romName;
+            Ep128Emu::splitPath(config->memory.rom[0x00].file,
+                                baseDir, romName);
+            DIR     *d = (DIR *) 0;
+            if (baseDir.length() > 6 && !romName.empty() &&
+                std::strcmp(baseDir.c_str() + (baseDir.length() - 6), "/roms/")
+                == 0) {
+              baseDir.resize(baseDir.length() - 6);
+              d = opendir(baseDir.c_str());
+            }
+            if (d)
+              closedir(d);
+            else
+              baseDir = Ep128Emu::getEp128EmuHomeDirectory();
           }
-          cmdLine.resize(i);
-          cmdLine += "makecfg\"";
-#ifdef __APPLE__
-          cmdLine += " -f";
+          // invalid configuration, try running makecfg if not done yet
+          delete config;
+          config = (Ep128Emu::EmulatorConfiguration *) 0;
+          makecfgNeeded = true;
+          config = new Ep128Emu::EmulatorConfiguration(
+              *vm, *(dynamic_cast<Ep128Emu::VideoDisplay *>(w)), *audioOutput
+#ifdef ENABLE_MIDI_PORT
+              , *midiPort
 #endif
-          std::system(cmdLine.c_str());
-          f = new Ep128Emu::File(cfgFileName, true);
+              );
+          config->setErrorCallback(&cfgErrorFunc, (void *) 0);
+#endif
         }
+#ifdef WIN32
         config->registerChunkType(*f);
         f->processAllChunks();
         delete f;
+#endif
       }
       catch (...) {
         if (f)
@@ -234,7 +343,10 @@ int main(int argc, char **argv)
       if (std::strcmp(argv[i], "-ep128") == 0 ||
           std::strcmp(argv[i], "-zx") == 0 ||
           std::strcmp(argv[i], "-cpc") == 0 ||
+          std::strcmp(argv[i], "-tvc") == 0 ||
+#ifndef DISABLE_OPENGL_DISPLAY
           std::strcmp(argv[i], "-opengl") == 0 ||
+#endif
           std::strcmp(argv[i], "-no-opengl") == 0)
         continue;
       if (std::strcmp(argv[i], "-cfg") == 0) {
@@ -270,6 +382,7 @@ int main(int argc, char **argv)
         }
       }
     }
+#ifndef DISABLE_OPENGL_DISPLAY
     if (glEnabled) {
       if (config->display.bufferingMode == 0 && !glCanDoSingleBuf) {
         config->display.bufferingMode = 1;
@@ -280,6 +393,7 @@ int main(int argc, char **argv)
         config->displaySettingsChanged = true;
       }
     }
+#endif
     config->applySettings();
     if (snapshotFile) {
       vm->registerChunkTypes(*snapshotFile);
@@ -326,6 +440,10 @@ int main(int argc, char **argv)
     }
     delete config;
   }
+#ifdef ENABLE_MIDI_PORT
+  if (midiPort)
+    delete midiPort;
+#endif
   if (vm)
     delete vm;
   if (w)

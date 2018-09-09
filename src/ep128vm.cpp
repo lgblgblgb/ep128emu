@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,6 +30,12 @@
 #include "debuglib.hpp"
 #include "videorec.hpp"
 #include "ide.hpp"
+#ifdef ENABLE_SDEXT
+#  include "sdext.hpp"
+#endif
+#ifdef ENABLE_RESID
+#  include "resid/sid.hpp"
+#endif
 
 #include <vector>
 #include <ctime>
@@ -148,9 +154,15 @@ namespace Ep128 {
     return vm.checkSingleStepModeBreak();
   }
 
-  EP128EMU_REGPARM1 uint8_t Ep128VM::Z80_::readOpcodeSecondByte()
+  EP128EMU_REGPARM2 uint8_t Ep128VM::Z80_::readOpcodeSecondByte(
+      const bool *invalidOpcodeTable)
   {
     uint16_t  addr = (uint16_t(R.PC.W.l) + uint16_t(1)) & uint16_t(0xFFFF);
+    if (invalidOpcodeTable) {
+      uint8_t b = vm.memory.readNoDebug(addr);
+      if (EP128EMU_UNLIKELY(invalidOpcodeTable[b]))
+        return b;
+    }
     if (vm.memoryTimingEnabled) {
       if (vm.pageTable[addr >> 14] < 0xFC)
         vm.cpuCyclesRemaining -= vm.memoryWaitCycles_M1;
@@ -274,13 +286,19 @@ namespace Ep128 {
 
   EP128EMU_REGPARM3 void Ep128VM::Z80_::doOut(uint16_t addr, uint8_t value)
   {
-    vm.cpuCyclesRemaining -= (int64_t(4) << 32);
+    vm.cpuCyclesRemaining -= (int64_t(3) << 32);
+    if (vm.cpuCyclesRemaining < -(vm.cpuCyclesPerNickCycle))
+      vm.runDevices();
+    vm.cpuCyclesRemaining -= (int64_t(1) << 32);
     vm.ioPorts.write(addr, value);
   }
 
   EP128EMU_REGPARM2 uint8_t Ep128VM::Z80_::doIn(uint16_t addr)
   {
-    vm.cpuCyclesRemaining -= (int64_t(4) << 32);
+    vm.cpuCyclesRemaining -= (int64_t(3) << 32);
+    if (vm.cpuCyclesRemaining < -(vm.cpuCyclesPerNickCycle))
+      vm.runDevices();
+    vm.cpuCyclesRemaining -= (int64_t(1) << 32);
     return vm.ioPorts.read(addr);
   }
 
@@ -296,80 +314,34 @@ namespace Ep128 {
 
   EP128EMU_REGPARM1 void Ep128VM::Z80_::tapePatch()
   {
-    if ((R.PC.W.l & 0x3FFF) > 0x3FFC ||
-        !((vm.fileIOEnabled | vm.isRecordingDemo | vm.isPlayingDemo) &&
-          vm.memory.isSegmentROM(vm.getMemoryPage(int(R.PC.W.l >> 14))))) {
+    uint8_t n;
+    if (!((R.PC.W.l & 0x3FFF) < 0x3FFC &&
+          vm.memory.isSegmentROM(vm.memory.getPage(uint8_t(R.PC.W.l >> 14))) &&
+          vm.readMemory(uint16_t(R.PC.W.l + 2), true) == 0xFE &&
+          (n = vm.readMemory(uint16_t(R.PC.W.l + 3), true)) < 0x10)) {
       return;
     }
-    if (vm.readMemory((uint16_t(R.PC.W.l) + 2) & 0xFFFF, true) != 0xFE)
-      return;
-    uint8_t n = vm.readMemory((uint16_t(R.PC.W.l) + 3) & 0xFFFF, true);
-    if (n > 0x0F)
-      return;
-    if (vm.isRecordingDemo | vm.isPlayingDemo) {
+    if ((!vm.fileIOEnabled) | vm.isRecordingDemo | vm.isPlayingDemo) {
       // file I/O is disabled while recording or playing demo
       if (n != 0x0F)
         R.AF.B.h = uint8_t((n >= 0x01 && n <= 0x0B) ? 0xE7 : 0x00);
       return;
     }
-    std::map< uint8_t, std::FILE * >::iterator  i_;
-    i_ = fileChannels.find(uint8_t(R.AF.B.h));
-    if ((n >= 0x01 && n <= 0x02) && i_ != fileChannels.end()) {
-      R.AF.B.h = 0xF9;          // channel already exists
-      return;
-    }
-    if ((n >= 0x03 && n <= 0x0B) && i_ == fileChannels.end()) {
-      R.AF.B.h = 0xFB;          // channel does not exist
-      return;
+    std::map< uint8_t, std::FILE * >::iterator  i_ = fileChannels.end();
+    if (n >= 0x01 && n <= 0x0B) {
+      i_ = fileChannels.find(uint8_t(R.AF.B.h));
+      if ((n < 0x03) != (i_ == fileChannels.end())) {
+        // 0xF9 = channel already exists
+        // 0xFB = channel does not exist
+        R.AF.B.h = (n < 0x03 ? 0xF9 : 0xFB);
+        return;
+      }
     }
     switch (n) {
     case 0x00:                          // INTERRUPT
       R.AF.B.h = 0x00;
       break;
     case 0x01:                          // OPEN CHANNEL
-      {
-        std::string fileName;
-        uint16_t    nameAddr = uint16_t(R.DE.W);
-        uint8_t     nameLen = vm.readMemory(nameAddr, true);
-        while (nameLen) {
-          nameAddr = (nameAddr + 1) & 0xFFFF;
-          char  c = char(vm.readMemory(nameAddr, true));
-          if (c == '\0')
-            break;
-          fileName += c;
-          nameLen--;
-        }
-        uint8_t   chn = uint8_t(R.AF.B.h);
-        std::FILE *f = (std::FILE *) 0;
-        R.AF.B.h = 0x00;
-        try {
-          int   err = vm.openFileInWorkingDirectory(f, fileName, "rb");
-          if (err == 0)
-            fileChannels.insert(std::pair< uint8_t, std::FILE * >(chn, f));
-          else {
-            switch (err) {
-            case -2:
-              R.AF.B.h = 0xA6;
-              break;
-            case -3:
-              R.AF.B.h = 0xCF;
-              break;
-            case -4:
-            case -5:
-              R.AF.B.h = 0xA1;
-              break;
-            default:
-              R.AF.B.h = 0xBA;
-            }
-          }
-        }
-        catch (...) {
-          if (f)
-            std::fclose(f);
-          R.AF.B.h = 0xBA;
-        }
-      }
-      break;
     case 0x02:                          // CREATE CHANNEL
       {
         std::string fileName;
@@ -387,9 +359,19 @@ namespace Ep128 {
         std::FILE *f = (std::FILE *) 0;
         R.AF.B.h = 0x00;
         try {
-          int   err = vm.openFileInWorkingDirectory(f, fileName, "wb");
-          if (err == 0)
+          int     err = vm.openFileInWorkingDirectory(
+                            f, fileName, (n == 0x01 ? "r+b" : "w+b"));
+          if (err == -5) {
+            if (n == 0x01) {
+              // if opening the file in RW mode failed,
+              // try again in read only mode
+              f = Ep128Emu::fileOpen(fileName.c_str(), "rb");
+              err = (!f ? err : 0);
+            }
+          }
+          if (err == 0) {
             fileChannels.insert(std::pair< uint8_t, std::FILE * >(chn, f));
+          }
           else {
             switch (err) {
             case -2:
@@ -415,16 +397,7 @@ namespace Ep128 {
       }
       break;
     case 0x03:                          // CLOSE CHANNEL
-      if (std::fclose((*i_).second) == 0)
-        R.AF.B.h = 0x00;
-      else
-        R.AF.B.h = 0xE4;
-      (*i_).second = (std::FILE *) 0;
-      fileChannels.erase(i_);
-      break;
-    case 0x04:                          // DESTROY CHANNEL
-      // FIXME: this should remove the file;
-      // for now, it is the same as "close channel"
+    case 0x04:                          // DESTROY CHANNEL (FIXME: same as 0x03)
       if (std::fclose((*i_).second) == 0)
         R.AF.B.h = 0x00;
       else
@@ -479,9 +452,55 @@ namespace Ep128 {
       R.AF.B.h = 0x00;
       break;
     case 0x0A:                          // SET/GET CHANNEL STATUS
-      // TODO: implement this
-      R.AF.B.h = 0xE7;
-      R.BC.B.l = 0x00;
+      {
+        long    filePos, fileSize;
+        if (!(R.BC.B.l & 0x01)) {
+          R.BC.B.l = 0x00;
+          // if not setting a new file position, save the original position
+          if ((filePos = std::ftell((*i_).second)) < 0L) {
+            R.AF.B.h = 0xA1;            // invalid file attributes
+            break;
+          }
+        }
+        else {
+          R.BC.B.l = 0x00;
+          filePos = long(readUserMemory(uint16_t(R.DE.W)))
+                    | (long(readUserMemory(uint16_t(R.DE.W + 1))) << 8)
+                    | (long(readUserMemory(uint16_t(R.DE.W + 2))) << 16)
+                    | (long(readUserMemory(uint16_t(R.DE.W + 3))) << 24);
+          if (filePos & long(0x80000000UL)) {
+            R.AF.B.h = 0xAE;            // negative position: invalid parameter
+            break;
+          }
+        }
+        // get file size
+        if (std::fseek((*i_).second, 0L, SEEK_END) != 0 ||
+            (fileSize = std::ftell((*i_).second)) < 0L) {
+          R.AF.B.h = 0xA1;
+          break;
+        }
+        // set or restore file position
+        if (filePos > fileSize && filePos >= 0x02000000L) {
+          R.AF.B.h = 0xAE;              // invalid parameter
+          break;
+        }
+        if (std::fseek((*i_).second, filePos, SEEK_SET) != 0) {
+          R.AF.B.h = 0xA1;
+          break;
+        }
+        writeUserMemory(uint16_t(R.DE.W), uint8_t(filePos & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 1), uint8_t((filePos >> 8) & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 2), uint8_t((filePos >> 16) & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 3), uint8_t((filePos >> 24) & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 4), uint8_t(fileSize & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 5), uint8_t((fileSize >> 8) & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 6),
+                        uint8_t((fileSize >> 16) & 0xFFL));
+        writeUserMemory(uint16_t(R.DE.W + 7),
+                        uint8_t((fileSize >> 24) & 0xFFL));
+        R.AF.B.h = 0x00;
+        R.BC.B.l = 0x03;                // file position and size are valid
+      }
       break;
     case 0x0B:                          // SPECIAL FUNCTION
       R.AF.B.h = 0xE7;
@@ -769,6 +788,29 @@ namespace Ep128 {
     }
   }
 
+  EP128EMU_REGPARM1 void Ep128VM::runDevices()
+  {
+    do {
+      nick.runOneSlot();
+      nickCyclesRemainingH--;
+      Ep128VMCallback   *p = firstCallback;
+      while (p) {
+        Ep128VMCallback *nxt = p->nxt;
+        p->func(p->userData);
+        p = nxt;
+      }
+      daveCyclesRemaining += daveCyclesPerNickCycle;
+      if (daveCyclesRemaining >= 0L) {
+        do {
+          daveCyclesRemaining -= (int64_t(1) << 32);
+          soundOutputSignal = dave.runOneCycle();
+          sendAudioOutput(soundOutputSignal + externalDACOutput);
+        } while (EP128EMU_UNLIKELY(daveCyclesRemaining >= 0L));
+      }
+      cpuCyclesRemaining += cpuCyclesPerNickCycle;
+    } while (cpuCyclesRemaining < -cpuCyclesPerNickCycle);
+  }
+
   uint8_t Ep128VM::davePortReadCallback(void *userData, uint16_t addr)
   {
     return (reinterpret_cast<Ep128VM *>(userData)->dave.readPort(addr));
@@ -807,27 +849,23 @@ namespace Ep128 {
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
     // floppy emulation is disabled while recording or playing demo
-    if (!(vm.isRecordingDemo | vm.isPlayingDemo)) {
-      if (vm.currentFloppyDrive <= 3) {
-        Ep128Emu::WD177x& floppyDrive = vm.floppyDrives[vm.currentFloppyDrive];
-        switch (addr) {
-        case 0x00:
-          return floppyDrive.readStatusRegister();
-        case 0x01:
-          return floppyDrive.readTrackRegister();
-        case 0x02:
-          return floppyDrive.readSectorRegister();
-        case 0x03:
-          return floppyDrive.readDataRegister();
-        default:
-          return uint8_t(  (floppyDrive.getInterruptRequestFlag() ? 0x3E : 0x3C)
-                         | (floppyDrive.getDiskChangeFlag() ? 0x00 : 0x40)
-                         | (floppyDrive.getDataRequestFlag() ? 0x80 : 0x00)
-                         | (floppyDrive.haveDisk() ? 0x00 : 0x01));
-        }
-      }
+    if (vm.isRecordingDemo | vm.isPlayingDemo)
+      return uint8_t((addr & 0x0008) ? 0x7D : 0x00);
+    switch (addr) {
+    case 0x00:
+      return vm.wd177x.readStatusRegister();
+    case 0x01:
+      return vm.wd177x.readTrackRegister();
+    case 0x02:
+      return vm.wd177x.readSectorRegister();
+    case 0x03:
+      return vm.wd177x.readDataRegister();
     }
-    return uint8_t((addr & 0x0008) ? 0x7D : 0x00);
+    return uint8_t(  (vm.wd177x.getInterruptRequestFlag() ? 0x3E : 0x3C)
+                   | (vm.wd177x.getFloppyDrive().getDiskChangeFlag() ?
+                      0x00 : 0x40)
+                   | (vm.wd177x.getDataRequestFlag() ? 0x80 : 0x00)
+                   | (vm.wd177x.getFloppyDrive().haveDisk() ? 0x00 : 0x01));
   }
 
   void Ep128VM::exdosPortWriteCallback(void *userData,
@@ -835,39 +873,39 @@ namespace Ep128 {
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
     // floppy emulation is disabled while recording or playing demo
-    if (!(vm.isRecordingDemo | vm.isPlayingDemo)) {
-      if (vm.currentFloppyDrive <= 3) {
-        Ep128Emu::WD177x& floppyDrive = vm.floppyDrives[vm.currentFloppyDrive];
-        switch (addr) {
-        case 0x00:
-          floppyDrive.writeCommandRegister(value);
-          break;
-        case 0x01:
-          floppyDrive.writeTrackRegister(value);
-          break;
-        case 0x02:
-          floppyDrive.writeSectorRegister(value);
-          break;
-        case 0x03:
-          floppyDrive.writeDataRegister(value);
-          break;
-        }
+    if (vm.isRecordingDemo | vm.isPlayingDemo)
+      return;
+    if (addr & 0x0008) {
+      if (!(value & 0x0F)) {
+        vm.wd177x.setFloppyDrive((Ep128Emu::FloppyDrive *) 0);
+        return;
       }
-      if (addr & 0x0008) {
-        vm.currentFloppyDrive = 0xFF;
-        if ((value & 0x01) != 0)
-          vm.currentFloppyDrive = 0;
-        else if ((value & 0x02) != 0)
-          vm.currentFloppyDrive = 1;
-        else if ((value & 0x04) != 0)
-          vm.currentFloppyDrive = 2;
-        else if ((value & 0x08) != 0)
-          vm.currentFloppyDrive = 3;
-        else
-          return;
-        if ((value & 0x40) != 0)
-          vm.floppyDrives[vm.currentFloppyDrive].clearDiskChangeFlag();
-        vm.floppyDrives[vm.currentFloppyDrive].setSide((value & 0x10) >> 4);
+      if (value & 0x01)
+        vm.wd177x.setFloppyDrive(&(vm.floppyDrives[0]));
+      else if (value & 0x02)
+        vm.wd177x.setFloppyDrive(&(vm.floppyDrives[1]));
+      else if (value & 0x04)
+        vm.wd177x.setFloppyDrive(&(vm.floppyDrives[2]));
+      else
+        vm.wd177x.setFloppyDrive(&(vm.floppyDrives[3]));
+      if (value & 0x40)
+        vm.wd177x.getFloppyDrive().setDiskChangeFlag(false);
+      vm.wd177x.getFloppyDrive().setSide((value & 0x10) >> 4);
+    }
+    else {
+      switch (addr) {
+      case 0x00:
+        vm.wd177x.writeCommandRegister(value);
+        break;
+      case 0x01:
+        vm.wd177x.writeTrackRegister(value);
+        break;
+      case 0x02:
+        vm.wd177x.writeSectorRegister(value);
+        break;
+      case 0x03:
+        vm.wd177x.writeDataRegister(value);
+        break;
       }
     }
   }
@@ -875,25 +913,21 @@ namespace Ep128 {
   uint8_t Ep128VM::exdosPortDebugReadCallback(void *userData, uint16_t addr)
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
-    if (vm.currentFloppyDrive <= 3) {
-      Ep128Emu::WD177x& floppyDrive = vm.floppyDrives[vm.currentFloppyDrive];
-      switch (addr) {
-      case 0x00:
-        return floppyDrive.readStatusRegisterDebug();
-      case 0x01:
-        return floppyDrive.readTrackRegister();
-      case 0x02:
-        return floppyDrive.readSectorRegister();
-      case 0x03:
-        return floppyDrive.readDataRegisterDebug();
-      default:
-        return uint8_t(  (floppyDrive.getInterruptRequestFlag() ? 0x3E : 0x3C)
-                       | (floppyDrive.getDiskChangeFlag() ? 0x00 : 0x40)
-                       | (floppyDrive.getDataRequestFlag() ? 0x80 : 0x00)
-                       | (floppyDrive.haveDisk() ? 0x00 : 0x01));
-      }
+    switch (addr) {
+    case 0x00:
+      return vm.wd177x.readStatusRegisterDebug();
+    case 0x01:
+      return vm.wd177x.readTrackRegister();
+    case 0x02:
+      return vm.wd177x.readSectorRegister();
+    case 0x03:
+      return vm.wd177x.readDataRegisterDebug();
     }
-    return uint8_t((addr & 0x0008) ? 0x7D : 0x00);
+    return uint8_t(  (vm.wd177x.getInterruptRequestFlag() ? 0x3E : 0x3C)
+                   | (vm.wd177x.getFloppyDrive().getDiskChangeFlag() ?
+                      0x00 : 0x40)
+                   | (vm.wd177x.getDataRequestFlag() ? 0x80 : 0x00)
+                   | (vm.wd177x.getFloppyDrive().haveDisk() ? 0x00 : 0x01));
   }
 
   uint8_t Ep128VM::spectrumEmulatorIOReadCallback(void *userData, uint16_t addr)
@@ -977,6 +1011,73 @@ namespace Ep128 {
     }
   }
 
+#ifdef ENABLE_MIDI_PORT
+  uint8_t Ep128VM::midiPortReadCallback(void *userData, uint16_t addr)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    uint8_t   value = 0xFF;
+    if (!(vm.isRecordingDemo | vm.isPlayingDemo)) {
+      vm.midiBufferMutex.lock();
+      if (!(addr & 1)) {
+        value = vm.midiDevFlags;
+        if (vm.midiBufferReadPos == vm.midiBufferWritePos)
+          value = value | 0x80;
+        if (vm.midiBufferReadPos == ((vm.midiBufferWritePos + 1) & 0xFF))
+          value = value | 0x40;
+      }
+      else if (!(vm.midiDevFlags & 0x01) &&
+               vm.midiBufferReadPos != vm.midiBufferWritePos) {
+        value = vm.midiBuffer[vm.midiBufferReadPos];
+        vm.midiBufferReadPos = (vm.midiBufferReadPos + 1) & 0xFF;
+      }
+      vm.midiBufferMutex.unlock();
+    }
+    return value;
+  }
+
+  void Ep128VM::midiPortWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if (!(vm.isRecordingDemo | vm.isPlayingDemo)) {
+      vm.midiBufferMutex.lock();
+      if (!(addr & 1)) {
+        if (value == 0x00) {
+          vm.midiBufferReadPos = 0;
+          vm.midiBufferWritePos = 0;
+          vm.midiSavedStatus = 0x00;
+        }
+      }
+      else if (!(vm.midiDevFlags & 0x02) &&
+               vm.midiBufferReadPos != ((vm.midiBufferWritePos + 1) & 0xFF)) {
+        vm.midiBuffer[vm.midiBufferWritePos] = value;
+        vm.midiBufferWritePos = (vm.midiBufferWritePos + 1) & 0xFF;
+      }
+      vm.midiBufferMutex.unlock();
+    }
+  }
+
+  uint8_t Ep128VM::midiPortDebugReadCallback(void *userData, uint16_t addr)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    uint8_t   value = 0xFF;
+    vm.midiBufferMutex.lock();
+    if (!(addr & 1)) {
+      value = vm.midiDevFlags;
+      if (vm.midiBufferReadPos == vm.midiBufferWritePos)
+        value = value | 0x80;
+      if (vm.midiBufferReadPos == ((vm.midiBufferWritePos + 1) & 0xFF))
+        value = value | 0x40;
+    }
+    else if (!(vm.midiDevFlags & 0x01) &&
+             vm.midiBufferReadPos != vm.midiBufferWritePos) {
+      value = vm.midiBuffer[vm.midiBufferReadPos];
+    }
+    vm.midiBufferMutex.unlock();
+    return value;
+  }
+#endif
+
   uint8_t Ep128VM::cmosMemoryIOReadCallback(void *userData, uint16_t addr)
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
@@ -1038,6 +1139,102 @@ namespace Ep128 {
       vm.ideInterface->writePort(addr, value);
   }
 
+  void Ep128VM::mouseRTSWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if ((value ^ vm.prvB7PortState) & 0x02) {
+      if (!vm.mouseTimer) {
+        if (EP128EMU_UNLIKELY(!vm.mouseEmulationEnabled)) {
+          // mouse data is requested for the first time since reset()
+          vm.mouseEmulationEnabled = true;
+          vm.mouseDeltaX = 0;
+          vm.mouseDeltaY = 0;
+          vm.mouseButtonState = 0x00;
+          vm.mouseWheelDelta = 0x00;
+        }
+        vm.setCallback(&mouseTimerCallback, userData, true);
+        uint8_t   dx = uint8_t(vm.mouseDeltaX) & 0xFF;
+        uint8_t   dy = uint8_t(vm.mouseDeltaY) & 0xFF;
+        uint32_t  mouseData_ =
+            uint32_t(vm.mouseWheelDelta)
+            | (uint32_t(((vm.mouseButtonState >> 2) & 0x07) | 0x10) << 8)
+            | (uint32_t(dx) << 24) | (uint32_t(dy) << 16);
+        // ExCnt = 4
+        // PS/2 mouse ID = 4
+        // hardware version = 0x14
+        // firmware version = 0x19
+        // EnterMice ID = 0x5D
+        vm.mouseData = (uint64_t(mouseData_) << 32) | 0x4414195DULL;
+        vm.mouseDeltaX = 0;
+        vm.mouseDeltaY = 0;
+        vm.mouseWheelDelta = 0x00;
+      }
+      // send next nibble to DAVE (port 0xB6)
+      uint8_t daveInput = uint8_t(vm.mouseData >> 60) & 0x0F;
+      vm.mouseData = vm.mouseData << 4;
+      daveInput = daveInput | (((~vm.mouseButtonState) & 0x03) << 4);
+      vm.dave.setMouseInput(daveInput);
+      // 1500 us
+      vm.mouseTimer = (uint32_t(vm.nickFrequency) * 1573U + 0x00080000U) >> 20;
+    }
+    vm.prvB7PortState = value;
+    vm.davePortWriteCallback(userData, addr, value);
+  }
+
+#ifdef ENABLE_RESID
+
+  uint8_t Ep128VM::sidPortReadCallback(void *userData, uint16_t addr)
+  {
+    // write-only ports
+    (void) userData;
+    (void) addr;
+    return 0xFF;
+  }
+
+  void Ep128VM::sidPortWriteCallback(void *userData,
+                                     uint16_t addr, uint8_t value)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if (!vm.sidModel)
+      return;
+    if (!(addr & 1)) {
+      vm.sidAddressRegister = value & 0x1F;
+    }
+    else {
+      if (EP128EMU_UNLIKELY(!vm.sidEnabled)) {
+        vm.setCallback(&Ep128VM::sidCallback, &vm, true);
+        vm.sidEnabled = true;
+      }
+      vm.sid->write(vm.sidAddressRegister, value);
+    }
+  }
+
+  uint8_t Ep128VM::sidPortDebugReadCallback(void *userData, uint16_t addr)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if (!vm.sidModel)
+      return 0xFF;
+    if (!(addr & 1))
+      return vm.sidAddressRegister;
+    return uint8_t(vm.sid->readDebug(vm.sidAddressRegister));
+  }
+
+#endif
+
+  void Ep128VM::mouseTimerCallback(void *userData)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    if (EP128EMU_EXPECT(vm.mouseTimer > 1U)) {
+      vm.mouseTimer--;
+      return;
+    }
+    vm.mouseTimer = 0U;
+    vm.mouseData = 0ULL;
+    vm.setCallback(&mouseTimerCallback, userData, false);
+    vm.dave.clearMouseInput();
+  }
+
   void Ep128VM::tapeCallback(void *userData)
   {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
@@ -1059,22 +1256,28 @@ namespace Ep128 {
         vm.stopDemoPlayback();
       }
       try {
-        uint8_t evtType = vm.demoBuffer.readByte();
-        uint8_t evtBytes = vm.demoBuffer.readByte();
-        uint8_t evtData = 0;
-        while (evtBytes) {
-          evtData = vm.demoBuffer.readByte();
-          evtBytes--;
-        }
+        uint8_t   evtType = vm.demoBuffer.readByte();
+        uint8_t   evtBytes = vm.demoBuffer.readByte();
+        uint32_t  evtData_ = 0U;
+        unsigned char *evtData = reinterpret_cast< unsigned char * >(&evtData_);
+        for (uint8_t i = 0; i < evtBytes; i++)
+          evtData[i & 3] = vm.demoBuffer.readByte();
         switch (evtType) {
         case 0x00:
           vm.stopDemoPlayback();
           break;
         case 0x01:
-          vm.dave.setKeyboardState(evtData, 1);
+          vm.dave.setKeyboardState(evtData[0], 1);
           break;
         case 0x02:
-          vm.dave.setKeyboardState(evtData, 0);
+          vm.dave.setKeyboardState(evtData[0], 0);
+          break;
+        case 0x03:
+          // FIXME: ugly hack to enable mouse input only from the demo file
+          vm.isPlayingDemo = false;
+          vm.setMouseState(int8_t(evtData[0]), int8_t(evtData[1]),
+                           evtData[2], evtData[3]);
+          vm.isPlayingDemo = true;
           break;
         }
         vm.demoTimeCnt = vm.demoBuffer.readUIntVLen();
@@ -1103,6 +1306,34 @@ namespace Ep128 {
     Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
     vm.videoCapture->runOneCycle(vm.soundOutputSignal + vm.externalDACOutput);
   }
+
+#ifdef ENABLE_RESID
+
+  void Ep128VM::sidCallback(void *userData)
+  {
+    Ep128VM&  vm = *(reinterpret_cast<Ep128VM *>(userData));
+    int64_t   tmp = vm.daveCyclesRemaining + vm.daveCyclesPerNickCycle;
+    if (tmp >= 0L) {
+      do {
+        tmp -= (int64_t(1) << 32);
+        vm.sidOutputAccumulator = 0;
+        SID::clockCallback(vm.sid);
+        SID::clockCallback(vm.sid);
+        // FIXME: this is the maximum safe range with all 4 DAVE channels
+        // active, but it can overflow with tape feedback (unlikely in
+        // practice)
+        const int32_t sidOutputMax = (65535 - (63 * 4 * 128)) << 15;
+        const int32_t sidOutputOffs = (65535 - (63 * 4 * 128) + 1) << 14;
+        int32_t outL = vm.sidOutputAccumulator * vm.sidVolumeL + sidOutputOffs;
+        int32_t outR = vm.sidOutputAccumulator * vm.sidVolumeR + sidOutputOffs;
+        outL = (outL >= 0 ? (outL < sidOutputMax ? outL : sidOutputMax) : 0);
+        outR = (outR >= 0 ? (outR < sidOutputMax ? outR : sidOutputMax) : 0);
+        vm.externalDACOutput = uint32_t((outL >> 15) | ((outR >> 15) << 16));
+      } while (EP128EMU_UNLIKELY(tmp >= 0L));
+    }
+  }
+
+#endif
 
   uint8_t Ep128VM::checkSingleStepModeBreak()
   {
@@ -1232,6 +1463,17 @@ namespace Ep128 {
     prvRTCTime = -1L;
   }
 
+  void Ep128VM::resetFloppyDrives(bool isColdReset)
+  {
+    wd177x.setFloppyDrive((Ep128Emu::FloppyDrive *) 0);
+    wd177x.reset(isColdReset);
+    for (int i = 0; i < 4; i++) {
+      floppyDrives[i].reset();
+      if (isColdReset)
+        floppyDrives[i].setDiskChangeFlag(true);
+    }
+  }
+
   void Ep128VM::setCallback(void (*func)(void *userData), void *userData_,
                             bool isEnabled)
   {
@@ -1305,7 +1547,8 @@ namespace Ep128 {
       ioPorts(*this),
       dave(*this),
       nick(*this),
-      nickCyclesRemaining(0L),
+      nickCyclesRemainingL(0U),
+      nickCyclesRemainingH(0),
       cpuCyclesPerNickCycle(0L),
       cpuCyclesRemaining(-1L),
       daveCyclesPerNickCycle(0L),
@@ -1326,7 +1569,6 @@ namespace Ep128 {
       isPlayingDemo(false),
       snapshotLoadFlag(false),
       demoTimeCnt(0U),
-      currentFloppyDrive(0xFF),
       breakPointPriorityThreshold(0),
       cmosMemoryRegisterSelect(0xFF),
       spectrumEmulatorEnabled(false),
@@ -1347,8 +1589,34 @@ namespace Ep128 {
       videoMemoryLatency(359455),
       videoMemoryLatency_M1(355589),
       videoMemoryLatency_IO(362928),
-      ideInterface((IDEInterface *) 0)
+      ideInterface((IDEInterface *) 0),
+      mouseEmulationEnabled(false),
+      prvB7PortState(0x00),
+      mouseTimer(0U),
+      mouseData(0U),
+      mouseDeltaX(0),
+      mouseDeltaY(0),
+      mouseButtonState(0x00),
+      mouseWheelDelta(0x00)
+#ifdef ENABLE_RESID
+      , sid((SID *) 0),
+      sidEnabled(false),
+      sidModel(0),
+      sidAddressRegister(0x00),
+      sidOutputAccumulator(0),
+      sidVolumeL(1039),
+      sidVolumeR(1039)
+#endif
+#ifdef ENABLE_MIDI_PORT
+      , midiBufferReadPos(0),
+      midiBufferWritePos(0),
+      midiDevFlags(0xFF),
+      midiSavedStatus(0x00)
+#endif
   {
+#ifdef ENABLE_SDEXT
+    memory.setSDExtPtr(&sdext);
+#endif
     for (size_t i = 0; i < (sizeof(callbacks) / sizeof(Ep128VMCallback)); i++) {
       callbacks[i].func = (void (*)(void *)) 0;
       callbacks[i].userData = (void *) 0;
@@ -1364,6 +1632,7 @@ namespace Ep128 {
     ioPorts.setReadCallback(0xA0, 0xBF, &davePortReadCallback, this, 0xA0);
     ioPorts.setWriteCallback(0xA0, 0xBF, &davePortWriteCallback, this, 0xA0);
     ioPorts.setDebugReadCallback(0xB0, 0xB6, &davePortReadCallback, this, 0xA0);
+    ioPorts.setWriteCallback(0xB7, 0xB7, &mouseRTSWriteCallback, this, 0xA0);
     for (uint16_t i = 0x80; i <= 0x8F; i++) {
       ioPorts.setReadCallback(i, i, &nickPortReadCallback, this, (i & 0x8C));
       ioPorts.setWriteCallback(i, i, &nickPortWriteCallback, this, (i & 0x8C));
@@ -1383,10 +1652,7 @@ namespace Ep128 {
     dp.indexToRGBFunc = &Nick::convertPixelToRGB;
     display.setDisplayParameters(dp);
     setAudioConverterSampleRate(float(long(daveFrequency)));
-    floppyDrives[0].setIsWD1773(false);
-    floppyDrives[1].setIsWD1773(false);
-    floppyDrives[2].setIsWD1773(false);
-    floppyDrives[3].setIsWD1773(false);
+    wd177x.setIsWD1773(false);
     ideInterface = new IDEInterface();
     for (uint16_t i = 0x0010; i <= 0x001F; i++) {
       ioPorts.setReadCallback(i, i, &exdosPortReadCallback, this, i & 0x14);
@@ -1408,6 +1674,12 @@ namespace Ep128 {
                             &externalDACIOReadCallback, this, 0xF0);
     ioPorts.setWriteCallback(0xF0, 0xF3,
                              &externalDACIOWriteCallback, this, 0xF0);
+#ifdef ENABLE_MIDI_PORT
+    ioPorts.setReadCallback(0xF6, 0xF7, &midiPortReadCallback, this, 0xF6);
+    ioPorts.setDebugReadCallback(0xF6, 0xF7,
+                                 &midiPortDebugReadCallback, this, 0xF6);
+    ioPorts.setWriteCallback(0xF6, 0xF7, &midiPortWriteCallback, this, 0xF6);
+#endif
     ioPorts.setReadCallback(0x7E, 0x7F, &cmosMemoryIOReadCallback, this, 0x7E);
     ioPorts.setDebugReadCallback(0x7E, 0x7F,
                                  &cmosMemoryIOReadCallback, this, 0x7E);
@@ -1417,6 +1689,12 @@ namespace Ep128 {
     ioPorts.setDebugReadCallback(0xEC, 0xEF,
                                  &ideDriveIOReadCallback, this, 0xEC);
     ioPorts.setWriteCallback(0xEC, 0xEF, &ideDriveIOWriteCallback, this, 0xEC);
+#ifdef ENABLE_RESID
+    ioPorts.setReadCallback(0x0E, 0x0F, &sidPortReadCallback, this, 0x08);
+    ioPorts.setWriteCallback(0x0E, 0x0F, &sidPortWriteCallback, this, 0x08);
+    ioPorts.setDebugReadCallback(0x0E, 0x0F,
+                                 &sidPortDebugReadCallback, this, 0x08);
+#endif
     // reset
     this->reset(true);
   }
@@ -1456,13 +1734,16 @@ namespace Ep128 {
         dave.setTapeInput(0, 0);
       setCallback(&tapeCallback, this, tapeCallbackFlag);
     }
-    nickCyclesRemaining +=
-        ((int64_t(microseconds) << 26) * int64_t(nickFrequency)
-         / int64_t(15625));     // 10^6 / 2^6
-    if (EP128EMU_UNLIKELY(nickCyclesRemaining < (int64_t(1) << 32)))
+    {
+      int64_t tmp =
+          int64_t(nickCyclesRemainingL) | (int64_t(nickCyclesRemainingH) << 32);
+      tmp += ((int64_t(microseconds) << 26) * int64_t(nickFrequency)
+              / int64_t(15625));        // 10^6 / 2^6
+      nickCyclesRemainingL = uint32_t(tmp & 0xFFFFFFFFLL);
+      nickCyclesRemainingH = int32_t(uint32_t(uint64_t(tmp) >> 32));
+    }
+    if (EP128EMU_UNLIKELY(nickCyclesRemainingH < 1))
       return;
-    int     cycleCnt = int(nickCyclesRemaining >> 32);
-    nickCyclesRemaining -= (int64_t(cycleCnt) << 32);
     do {
       Ep128VMCallback   *p = firstCallback;
       while (p) {
@@ -1482,7 +1763,7 @@ namespace Ep128 {
       while (cpuCyclesRemaining >= 0L)
         z80.executeInstruction();
       nick.runOneSlot();
-    } while (EP128EMU_EXPECT(--cycleCnt));
+    } while (EP128EMU_EXPECT(--nickCyclesRemainingH > 0));
   }
 
   void Ep128VM::reset(bool isColdReset)
@@ -1497,9 +1778,7 @@ namespace Ep128 {
     setMemoryWaitTiming();
     remoteControlState = 0x00;
     setTapeMotorState(false);
-    currentFloppyDrive = 0xFF;
-    for (int i = 0; i < 4; i++)
-      floppyDrives[i].reset();
+    resetFloppyDrives(isColdReset);
     ideInterface->reset(int(isColdReset) + 1);
     ioPorts.writeDebug(0x44, 0x00);     // disable Spectrum emulator
     for (int i = 0; i < 4; i++) {
@@ -1517,7 +1796,65 @@ namespace Ep128 {
       for (uint32_t i = 0x003FF200U; i <= 0x003FF2FFU; i++)
         writeMemory(i, 0xFF, false);
     }
+    dave.setMouseInput(0xFF);
+    mouseEmulationEnabled = false;
+    prvB7PortState = 0x00;
+    mouseTimer = 0U;
+    mouseData = 0ULL;
+    mouseDeltaX = 0;
+    mouseDeltaY = 0;
+    mouseButtonState = 0x00;
+    mouseWheelDelta = 0x00;
+#ifdef ENABLE_SDEXT
+    sdext.reset(int(isColdReset));
+#endif
+#ifdef ENABLE_RESID
+    if (isColdReset)
+      sidAddressRegister = 0x00;
+    if (sid) {
+      if (sidEnabled) {
+        setCallback(&sidCallback, this, false);
+        sidEnabled = false;
+      }
+      sid->reset();
+    }
+#endif
+#ifdef ENABLE_MIDI_PORT
+    midiBufferMutex.lock();
+    midiBufferReadPos = 0;
+    midiBufferWritePos = 0;
+    midiSavedStatus = 0x00;
+    midiBufferMutex.unlock();
+#endif
   }
+
+#ifdef ENABLE_RESID
+
+  void Ep128VM::setSIDConfiguration(int n, int model,
+                                    double volumeL, double volumeR)
+  {
+    if (n != 3)
+      return;
+    if (model <= 0 || model > 2) {
+      if (sidEnabled) {
+        setCallback(&sidCallback, this, false);
+        sidEnabled = false;
+      }
+      model = 0;
+    }
+    else if (!sid) {
+      sid = new SID(sidOutputAccumulator);
+    }
+    if (bool(model) != bool(sidModel) && sid)
+      sid->reset();
+    sidModel = uint8_t(model);
+    if (model)
+      sid->set_chip_model(model == 1 ? MOS6581 : MOS8580);
+    sidVolumeL = int32_t(volumeL * 1039.75);
+    sidVolumeR = int32_t(volumeR * 1039.75);
+  }
+
+#endif
 
   void Ep128VM::setCPUFrequency(size_t freq_)
   {
@@ -1560,7 +1897,7 @@ namespace Ep128 {
   void Ep128VM::setSoundClockFrequency(size_t freq_)
   {
     size_t  freq;
-    freq = (freq_ > 250000 ? (freq_ < 1000000 ? freq_ : 1000000) : 250000);
+    freq = (freq_ > 250000 ? (freq_ < 1250000 ? freq_ : 1250000) : 250000);
     if (daveFrequency != freq) {
       daveFrequency = freq;
       updateTimingParameters();
@@ -1594,6 +1931,44 @@ namespace Ep128 {
     }
   }
 
+  void Ep128VM::setMouseState(int8_t dX, int8_t dY,
+                              uint8_t buttonState, uint8_t mouseWheelEvents)
+  {
+    if (EP128EMU_UNLIKELY(isRecordingDemo | isPlayingDemo)) {
+      if (isPlayingDemo)
+        return;
+      if (EP128EMU_UNLIKELY(haveTape() && getIsTapeMotorOn() &&
+                            getTapeButtonState() != 0)) {
+        stopDemoRecording(false);
+      }
+      else if (mouseEmulationEnabled) {
+        demoBuffer.writeUIntVLen(demoTimeCnt);
+        demoTimeCnt = 0U;
+        demoBuffer.writeByte(0x03);     // event type (mouse)
+        demoBuffer.writeByte(0x04);     // number of data bytes
+        demoBuffer.writeByte(uint8_t(dX));
+        demoBuffer.writeByte(uint8_t(dY));
+        demoBuffer.writeByte(buttonState);
+        demoBuffer.writeByte(mouseWheelEvents);
+      }
+    }
+    int     dX_ = int(dX) + int(mouseDeltaX);
+    int     dY_ = int(dY) + int(mouseDeltaY);
+    mouseDeltaX = int8_t(dX_ > -128 ? (dX_ < 127 ? dX_ : 127) : -128);
+    mouseDeltaY = int8_t(dY_ > -128 ? (dY_ < 127 ? dY_ : 127) : -128);
+    mouseButtonState = buttonState;
+    if (!(mouseTimer | (buttonState & 0x03)))
+      dave.setMouseInput(0xFF);
+    if (mouseWheelEvents) {
+      if (mouseWheelEvents & 0x01)      // up
+        mouseWheelDelta = (mouseWheelDelta + 1) & 0xFF;
+      if (mouseWheelEvents & 0x02)      // down
+        mouseWheelDelta = (mouseWheelDelta - 1) & 0xFF;
+      if (((mouseWheelDelta + 0x10) & 0xFF) >= 0x20)    // overflow
+        mouseWheelDelta = ((mouseWheelDelta & 0x80) ? 0xF8 : 0x07);
+    }
+  }
+
   void Ep128VM::getVMStatus(VMStatus& vmStatus_)
   {
     vmStatus_.tapeReadOnly = getIsTapeReadOnly();
@@ -1606,6 +1981,9 @@ namespace Ep128 {
       n = n << 8;
       n |= uint32_t(floppyDrives[i].getLEDState());
     }
+#ifdef ENABLE_SDEXT
+    n = n | sdext.getLEDState();
+#endif
     vmStatus_.floppyDriveLEDState = n | ideInterface->getLEDState();
     vmStatus_.isPlayingDemo = isPlayingDemo;
     if (demoFile != (Ep128Emu::File *) 0 && !isRecordingDemo)
@@ -1654,16 +2032,133 @@ namespace Ep128 {
     }
   }
 
+#ifdef ENABLE_MIDI_PORT
+  void Ep128VM::midiInReceiveEvent(int32_t evt)
+  {
+    if ((evt & 0xF8) < 0x80 || (evt & 0xF8) == 0xF0)
+      return;                           // system messages are ignored
+    midiBufferMutex.lock();
+    uint8_t bytesBuffered = (midiBufferWritePos - midiBufferReadPos) & 0xFF;
+    switch (evt & 0xF0) {
+    case 0x80:                          // note off
+    case 0x90:                          // note on
+    case 0xA0:                          // poly aftertouch
+    case 0xB0:                          // control change
+    case 0xE0:                          // pitch bend
+      if (bytesBuffered <= 252) {
+        midiBuffer[midiBufferWritePos] = uint8_t(evt & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+        midiBuffer[midiBufferWritePos] = uint8_t((evt >> 8) & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+        midiBuffer[midiBufferWritePos] = uint8_t((evt >> 16) & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+      }
+      break;
+    case 0xC0:                          // program change
+    case 0xD0:                          // channel aftertouch
+      if (bytesBuffered <= 253) {
+        midiBuffer[midiBufferWritePos] = uint8_t(evt & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+        midiBuffer[midiBufferWritePos] = uint8_t((evt >> 8) & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+      }
+      break;
+    default:                            // system messages (0xF8-0xFE only)
+      if (evt >= 0xF8 && evt < 0xFF && bytesBuffered <= 254) {
+        midiBuffer[midiBufferWritePos] = uint8_t(evt & 0xFF);
+        midiBufferWritePos = (midiBufferWritePos + 1) & 0xFF;
+      }
+      break;
+    }
+    midiBufferMutex.unlock();
+  }
+
+  int32_t Ep128VM::midiOutSendEvent()
+  {
+    int32_t evt = -1;
+    midiBufferMutex.lock();
+    uint8_t bytesBuffered = (midiBufferWritePos - midiBufferReadPos) & 0xFF;
+    if (bytesBuffered > 0) {
+      uint8_t st = midiBuffer[midiBufferReadPos];
+      uint8_t d1 = 0x00;
+      uint8_t d2 = 0x00;
+      bool    stFlag = false;
+      if (st < 0x80 && midiSavedStatus >= 0x80) {
+        d1 = st;
+        st = midiSavedStatus;
+        stFlag = true;
+      }
+      else {
+        bytesBuffered--;
+      }
+      if (bytesBuffered >= (st < 0x80 || st >= 0xF0 ?
+                            0 : (st < 0xC0 || st >= 0xE0 ? 2 : 1))) {
+        midiBufferReadPos = (midiBufferReadPos + 1) & 0xFF;
+        if (st >= 0x80 && (st < 0xF0 || (st >= 0xF8 && st < 0xFF))) {
+          if (st < 0xF0) {
+            midiSavedStatus = st;
+            if (!stFlag) {
+              d1 = midiBuffer[midiBufferReadPos];
+              if (d1 < 0x80)
+                midiBufferReadPos = (midiBufferReadPos + 1) & 0xFF;
+            }
+            if (st < 0xC0 || st >= 0xE0) {
+              d2 = midiBuffer[midiBufferReadPos];
+              if (d2 < 0x80)
+                midiBufferReadPos = (midiBufferReadPos + 1) & 0xFF;
+            }
+          }
+          else {
+            midiSavedStatus = 0x00;
+          }
+          if ((d1 | d2) < 0x80)
+            evt = int32_t(st) | (int32_t(d1) << 8) | (int32_t(d2) << 16);
+        }
+      }
+    }
+    midiBufferMutex.unlock();
+    return evt;
+  }
+
+  void Ep128VM::midiSetDeviceType(int t)
+  {
+    uint8_t f = (t == 1 ? 0x7E : (t == 2 ? 0xBD : 0xFF));
+    midiBufferMutex.lock();
+    if (f != midiDevFlags) {
+      midiBufferReadPos = 0;
+      midiBufferWritePos = 0;
+      midiDevFlags = f;
+      midiSavedStatus = 0x00;
+    }
+    midiBufferMutex.unlock();
+  }
+#endif  // ENABLE_MIDI_PORT
+
   void Ep128VM::setDiskImageFile(int n, const std::string& fileName_,
                                  int nTracks_, int nSides_,
                                  int nSectorsPerTrack_)
   {
+#ifndef ENABLE_SDEXT
     if (n < 0 || n > 7)
+#else
+    if (n < 0 || n > 8)
+#endif
       throw Ep128Emu::Exception("invalid disk drive number");
     if (n < 4) {
+      if (&(wd177x.getFloppyDrive()) == &(floppyDrives[n])) {
+        wd177x.setFloppyDrive((Ep128Emu::FloppyDrive *) 0);
+        wd177x.setFloppyDrive(&(floppyDrives[n]));
+      }
       floppyDrives[n].setDiskImageFile(fileName_,
                                        nTracks_, nSides_, nSectorsPerTrack_);
     }
+#ifdef ENABLE_SDEXT
+    else if (n >= 8) {
+      stopDemo();
+      sdext.openImage(fileName_.c_str());
+      return;
+    }
+#endif
     else {
       ideInterface->setImageFile(n & 3, fileName_.c_str());
     }
@@ -1676,6 +2171,9 @@ namespace Ep128 {
       n = n << 8;
       n |= uint32_t(floppyDrives[i].getLEDState());
     }
+#ifdef ENABLE_SDEXT
+    n = n | sdext.getLEDState();
+#endif
     return (n | ideInterface->getLEDState());
   }
 
@@ -1874,7 +2372,10 @@ namespace Ep128 {
       stopDemoPlayback();
       stopDemoRecording(false);
     }
-    ioPorts.writeDebug(addr, value);
+    if ((addr & 0xF0) == 0x80)
+      nick.writePort(addr, value);
+    else
+      ioPorts.writeDebug(addr, value);
   }
 
   uint16_t Ep128VM::getProgramCounter() const
@@ -1900,30 +2401,7 @@ namespace Ep128 {
 
   void Ep128VM::listCPURegisters(std::string& buf) const
   {
-    char    tmpBuf[256];
-    const Z80_REGISTERS&  r = z80.getReg();
-    std::sprintf(
-        &(tmpBuf[0]),
-        " PC   AF   BC   DE   HL   SP   IX   IY    F   ........\n"
-        "%04X %04X %04X %04X %04X %04X %04X %04X   F'  ........\n"
-        "      AF'  BC'  DE'  HL'  IM   I    R    IFF1 .\n"
-        "     %04X %04X %04X %04X  %02X   %02X   %02X   IFF2 .",
-        (unsigned int) z80.getProgramCounter(), (unsigned int) r.AF.W,
-        (unsigned int) r.BC.W, (unsigned int) r.DE.W,
-        (unsigned int) r.HL.W, (unsigned int) r.SP.W,
-        (unsigned int) r.IX.W, (unsigned int) r.IY.W,
-        (unsigned int) r.altAF.W, (unsigned int) r.altBC.W,
-        (unsigned int) r.altDE.W, (unsigned int) r.altHL.W,
-        (unsigned int) r.IM, (unsigned int) r.I, (unsigned int) r.R);
-    static const char *z80Flags_ = "SZ1H1VNC";
-    for (int i = 0; i < 8; i++) {
-      tmpBuf[i + 46] = ((r.AF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-      tmpBuf[i + 101] =
-          ((r.altAF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-    }
-    tmpBuf[156] = '0' + char(bool(r.IFF1));
-    tmpBuf[204] = '0' + char(bool(r.IFF2));
-    buf = &(tmpBuf[0]);
+    listZ80Registers(buf, z80);
   }
 
   void Ep128VM::listIORegisters(std::string& buf) const

@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2017 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,7 +30,14 @@
 #include "snd_conv.hpp"
 #include "soundio.hpp"
 #include "vm.hpp"
+#include "ep_fdd.hpp"
 #include "wd177x.hpp"
+#ifdef ENABLE_SDEXT
+#  include "sdext.hpp"
+#endif
+#ifdef ENABLE_RESID
+#  include "resid/sid.hpp"
+#endif
 
 #include <map>
 
@@ -57,7 +64,9 @@ namespace Ep128 {
       virtual EP128EMU_REGPARM2 uint8_t readMemory(uint16_t addr);
       virtual EP128EMU_REGPARM2 uint16_t readMemoryWord(uint16_t addr);
       virtual EP128EMU_REGPARM1 uint8_t readOpcodeFirstByte();
-      virtual EP128EMU_REGPARM1 uint8_t readOpcodeSecondByte();
+      virtual EP128EMU_REGPARM2
+          uint8_t readOpcodeSecondByte(const bool *invalidOpcodeTable =
+                                           (bool *) 0);
       virtual EP128EMU_REGPARM2 uint8_t readOpcodeByte(int offset);
       virtual EP128EMU_REGPARM2 uint16_t readOpcodeWord(int offset);
       virtual EP128EMU_REGPARM3 void writeMemory(uint16_t addr, uint8_t value);
@@ -127,7 +136,8 @@ namespace Ep128 {
     Dave_     dave;
     Nick_     nick;
     uint8_t   pageTable[4];
-    int64_t   nickCyclesRemaining;      // in 2^-32 NICK cycle units
+    uint32_t  nickCyclesRemainingL;     // in 2^-32 NICK cycle units
+    int32_t   nickCyclesRemainingH;
     int64_t   cpuCyclesPerNickCycle;    // in 2^-32 Z80 cycle units
     int64_t   cpuCyclesRemaining;       // in 2^-32 Z80 cycle units
     int64_t   daveCyclesPerNickCycle;   // in 2^-32 DAVE cycle units
@@ -152,8 +162,8 @@ namespace Ep128 {
     //   uint64_t   deltaTime   (in NICK cycles, stored as MSB first dynamic
     //                          length (1 to 8 bytes) value)
     //   uint8_t    eventType   (currently allowed values are 0 for end of
-    //                          demo (zero data bytes), 1 for key press, and
-    //                          2 for key release)
+    //                          demo (zero data bytes), 1 for key press,
+    //                          2 for key release, and 3 for mouse event)
     //   uint8_t    dataLength  number of event data bytes
     //   ...        eventData   (dataLength bytes)
     // the event data for event types 1 and 2 is the key code with a length of
@@ -170,8 +180,8 @@ namespace Ep128 {
     // used for counting time between demo events (in NICK cycles)
     uint64_t  demoTimeCnt;
     // floppy drives
-    Ep128Emu::WD177x  floppyDrives[4];
-    uint8_t   currentFloppyDrive;
+    Ep128Emu::WD177x      wd177x;
+    Ep128Emu::FloppyDrive floppyDrives[4];
     uint8_t   breakPointPriorityThreshold;
     uint8_t   cmosMemoryRegisterSelect;
     bool      spectrumEmulatorEnabled;
@@ -202,6 +212,34 @@ namespace Ep128 {
     int       videoMemoryLatency_M1;    //      -"-
     int       videoMemoryLatency_IO;    //      -"-
     IDEInterface  *ideInterface;
+    bool      mouseEmulationEnabled;    // cleared on reset, set on RTS toggle
+    uint8_t   prvB7PortState;
+    uint32_t  mouseTimer;               // NICK slots, counts down from 1500 us
+    uint64_t  mouseData;                // data buffer (b60..b63 = next nibble)
+    int8_t    mouseDeltaX;
+    int8_t    mouseDeltaY;
+    uint8_t   mouseButtonState;
+    uint8_t   mouseWheelDelta;          // b0..b3: vertical, b4..b7: horizontal
+#ifdef ENABLE_SDEXT
+    SDExt     sdext;
+#endif
+#ifdef ENABLE_RESID
+    SID       *sid;
+    bool      sidEnabled;
+    uint8_t   sidModel;                 // 0: disabled, 1: 6581, 2: 8580
+    uint8_t   sidAddressRegister;
+    int32_t   sidOutputAccumulator;
+    int32_t   sidVolumeL;
+    int32_t   sidVolumeR;
+#endif
+#ifdef ENABLE_MIDI_PORT
+    Ep128Emu::Mutex midiBufferMutex;
+    uint8_t   midiBufferReadPos;
+    uint8_t   midiBufferWritePos;
+    uint8_t   midiDevFlags;
+    uint8_t   midiSavedStatus;
+    uint8_t   midiBuffer[256];
+#endif
     // ----------------
     void updateTimingParameters();
     void setMemoryWaitTiming();
@@ -209,6 +247,8 @@ namespace Ep128 {
     EP128EMU_REGPARM1 void videoMemoryWait();
     EP128EMU_REGPARM1 void videoMemoryWait_M1();
     EP128EMU_REGPARM1 void videoMemoryWait_IO();
+    // called from the Z80 emulation to synchronize NICK and DAVE with the CPU
+    EP128EMU_REGPARM1 void runDevices();
     static uint8_t davePortReadCallback(void *userData, uint16_t addr);
     static void davePortWriteCallback(void *userData,
                                       uint16_t addr, uint8_t value);
@@ -227,22 +267,41 @@ namespace Ep128 {
     static uint8_t externalDACIOReadCallback(void *userData, uint16_t addr);
     static void externalDACIOWriteCallback(void *userData,
                                            uint16_t addr, uint8_t value);
+#ifdef ENABLE_MIDI_PORT
+    static uint8_t midiPortReadCallback(void *userData, uint16_t addr);
+    static void midiPortWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value);
+    static uint8_t midiPortDebugReadCallback(void *userData, uint16_t addr);
+#endif
     static uint8_t cmosMemoryIOReadCallback(void *userData, uint16_t addr);
     static void cmosMemoryIOWriteCallback(void *userData,
                                           uint16_t addr, uint8_t value);
     static uint8_t ideDriveIOReadCallback(void *userData, uint16_t addr);
     static void ideDriveIOWriteCallback(void *userData,
                                         uint16_t addr, uint8_t value);
+    static void mouseRTSWriteCallback(void *userData,
+                                      uint16_t addr, uint8_t value);
+#ifdef ENABLE_RESID
+    static uint8_t sidPortReadCallback(void *userData, uint16_t addr);
+    static void sidPortWriteCallback(void *userData,
+                                     uint16_t addr, uint8_t value);
+    static uint8_t sidPortDebugReadCallback(void *userData, uint16_t addr);
+#endif
+    static void mouseTimerCallback(void *userData);
     static void tapeCallback(void *userData);
     static void demoPlayCallback(void *userData);
     static void demoRecordCallback(void *userData);
     static void videoCaptureCallback(void *userData);
+#ifdef ENABLE_RESID
+    static void sidCallback(void *userData);
+#endif
     void stopDemoPlayback();
     void stopDemoRecording(bool writeFile_);
     uint8_t checkSingleStepModeBreak();
     void spectrumEmulatorNMI_AttrWrite(uint32_t addr, uint8_t value);
     void updateRTC();
     void resetCMOSMemory();
+    void resetFloppyDrives(bool isColdReset);
     // Set function to be called at every NICK cycle. The functions are called
     // in the order of being registered; up to 16 callbacks can be set.
     void setCallback(void (*func)(void *userData), void *userData_,
@@ -271,6 +330,22 @@ namespace Ep128 {
      * Load epmemcfg format memory configuration file.
      */
     virtual void loadMemoryConfiguration(const std::string& fileName_);
+#ifdef ENABLE_SDEXT
+    /*!
+     * Set if SD card emulation should be enabled on segment 0x07,
+     * and the file name of the 64 KB flash ROM image.
+     */
+    virtual void configureSDCard(bool isEnabled,
+                                 const std::string& romFileName);
+#endif
+#ifdef ENABLE_RESID
+    /*!
+     * Configure SID 'n' (0 to 3, currently only 3 is supported),
+     * 'model' can be 0 to disable the emulation, 1 for MOS 6581 or 2 for 8580.
+     */
+    virtual void setSIDConfiguration(int n, int model,
+                                     double volumeL, double volumeR);
+#endif
     /*!
      * Set CPU clock frequency (in Hz); defaults to 4000000 Hz.
      */
@@ -291,6 +366,25 @@ namespace Ep128 {
      * Set state of key 'keyCode' (0 to 127; see dave.hpp).
      */
     virtual void setKeyboardState(int keyCode, bool isPressed);
+    /*!
+     * Send mouse event to the emulated machine. 'dX' and 'dY' are the
+     * horizontal and vertical motion of the pointer relative to the position
+     * at the time of the previous call, positive values move to the left and
+     * up, respectively.
+     * Each bit of 'buttonState' corresponds to the current state of a mouse
+     * button (1 = pressed):
+     *   b0 = left button
+     *   b1 = right button
+     *   b2 = middle button
+     *   b3..b7 = buttons 4 to 8
+     * 'mouseWheelEvents' can be the sum of any of the following:
+     *   1: mouse wheel up
+     *   2: mouse wheel down
+     *   4: mouse wheel left
+     *   8: mouse wheel right
+     */
+    virtual void setMouseState(int8_t dX, int8_t dY,
+                               uint8_t buttonState, uint8_t mouseWheelEvents);
     /*!
      * Returns status information about the emulated machine (see also
      * struct VMStatus above, and the comments for functions that return
@@ -321,6 +415,23 @@ namespace Ep128 {
      * the output file.
      */
     virtual void closeVideoCapture();
+#ifdef ENABLE_MIDI_PORT
+    /*!
+     * Send MIDI event to the emulated machine
+     * (evt = status + (data1 << 8) + (data2 << 16).
+     */
+    virtual void midiInReceiveEvent(int32_t evt);
+    /*!
+     * Receive MIDI event sent by the emulated machine, in the format
+     * status + (data1 << 8) + (data2 << 16). If no event is available,
+     * -1 is returned.
+     */
+    virtual int32_t midiOutSendEvent();
+    /*!
+     * Set MIDI device type: 0 = none (default), 1 = input, 2 = output.
+     */
+    virtual void midiSetDeviceType(int t);
+#endif
     // -------------------------- DISK AND FILE I/O ---------------------------
     /*!
      * Load disk image for drive 'n' (counting from zero; 0 to 3 are floppy
@@ -344,10 +455,16 @@ namespace Ep128 {
      *   0x00020000: floppy drive 2 green LED is on
      *   0x00040000: IDE drive 2 red LED is on (low priority)
      *   0x000C0000: IDE drive 2 red LED is on (high priority)
+     *   0x00100000: SD card 1 blue LED is on (low priority)
+     *   0x00200000: SD card 1 blue LED is on (high priority)
+     *   0x00300000: SD card 1 cyan LED is on (high priority)
      *   0x01000000: floppy drive 3 red LED is on
      *   0x02000000: floppy drive 3 green LED is on
      *   0x04000000: IDE drive 3 red LED is on (low priority)
      *   0x0C000000: IDE drive 3 red LED is on (high priority)
+     *   0x10000000: SD card 2 blue LED is on (low priority)
+     *   0x20000000: SD card 2 blue LED is on (high priority)
+     *   0x30000000: SD card 2 cyan LED is on (high priority)
      */
     virtual uint32_t getFloppyDriveLEDState();
     // ---------------------------- TAPE EMULATION ----------------------------

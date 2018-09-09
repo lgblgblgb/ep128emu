@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2009 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,6 +24,12 @@
 
 namespace Ep128 {
 
+  // returns the number of sectors that can be addressed in LBA mode,
+  // this may be greater than c*h*s; bit 15 of 's' is set if the file
+  // is in VHD format
+  extern uint32_t checkVHDImage(std::FILE *imageFile, const char *fileName,
+                                uint16_t& c, uint16_t& h, uint16_t& s);
+
   class IDEInterface {
    protected:
     class IDEController {
@@ -33,7 +39,7 @@ namespace Ep128 {
         IDEController&  ideController;
         std::FILE *imageFile;
         uint8_t   *buf;         // 65536 bytes, pointer is set by ideController
-        uint32_t  nSectors;
+        uint32_t  nSectors;     // LBA sector count
         uint16_t  nCylinders;
         uint16_t  nHeads;
         uint16_t  nSectorsPerTrack;
@@ -54,7 +60,6 @@ namespace Ep128 {
         uint16_t  bufPos;
         bool      vhdFormat;
         // --------
-        bool calculateCHS(uint16_t& c, uint16_t& h, uint16_t& s);
         bool convertCHSToLBA(uint32_t& b, uint16_t c, uint16_t h, uint16_t s);
         bool convertLBAToCHS(uint16_t& c, uint16_t& h, uint16_t& s, uint32_t b);
         void readBlock();

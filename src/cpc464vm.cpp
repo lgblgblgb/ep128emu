@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
 // Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -35,35 +35,35 @@
 
 #include <vector>
 
-static const uint8_t  keyboardConvTable[256] = {
+static const uint8_t  keyboardConvTable[128] = {
   //   N   BSLASH        B        C        V        X        Z   LSHIFT
-  99, 46,  99, 22,  99, 54,  99, 62,  99, 55,  99, 63,  99, 71,  99, 21,
+      46,      22,      54,      62,      55,      63,      71,      21,
   //   H     LOCK        G        D        F        S        A     CTRL
-  99, 44,  99, 70,  99, 52,  99, 61,  99, 53,  99, 60,  99, 69,  99, 23,
+      44,      70,      52,      61,      53,      60,      69,      23,
   //   U        Q        Y        R        T        E        W      TAB
-  99, 42,  99, 67,  99, 43,  99, 50,  99, 51,  99, 58,  99, 59,  99, 68,
+      42,      67,      43,      50,      51,      58,      59,      68,
   //   7        1        6        4        5        3        2      ESC
-  99, 41,  99, 64,  99, 48,  99, 56,  99, 49,  99, 57,  99, 65,  99, 66,
+      41,      64,      48,      56,      49,      57,      65,      66,
   //  F4       F8       F3       F6       F5       F7       F2       F1
-  99, 20,  99, 11,  99,  5,  99,  4,  99, 12,  99, 10,  99, 14,  99, 13,
+      20,      11,       5,       4,      12,      10,      14,      13,
   //   8                 9        -        0        ^    ERASE
-  99, 40,  99, 99,  99, 33,  99, 25,  99, 32,  99, 24,  99, 79,  99, 99,
+      40,      99,      33,      25,      32,      24,      79,      99,
   //   J                 K        ;        L        :        ]
-  99, 45,  99, 99,  99, 37,  99, 28,  99, 36,  99, 29,  99, 19,  99, 99,
+      45,      99,      37,      28,      36,      29,      19,      99,
   // STOP    DOWN    RIGHT       UP     HOLD     LEFT    ENTER      ALT
-  99,  3,  99,  2,  99,  1,  99,  0,  99, 15,  99,  8,  99, 18,  99,  7,
+       3,       2,       1,       0,      15,       8,      18,       7,
   //   M   DELETE        ,        /        .   RSHIFT    SPACE   INSERT
-  99, 38,  99, 16,  99, 39,  99, 30,  99, 31,  99,  6,  99, 47,  99,  9,
+      38,      16,      39,      30,      31,       6,      47,       9,
   //   I                 O        @        P        [
-  99, 35,  99, 99,  99, 34,  99, 26,  99, 27,  99, 17,  99, 99,  99, 99,
-  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
-  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
-  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
-  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,  99, 99,
-  // JOY1R  JOY1L    JOY1D    JOY1U    JOY1F
-  99, 75,  99, 74,  99, 73,  99, 72,  76, 77,  99, 99,  99, 99,  99, 99,
-  // JOY2R  JOY2L    JOY2D    JOY2U    JOY2F
-  99, 51,  99, 50,  99, 49,  99, 48,  52, 53,  99, 99,  99, 99,  99, 99
+      35,      99,      34,      26,      27,      17,      99,      99,
+      99,      99,      99,      99,      99,      99,      99,      99,
+      99,      99,      99,      99,      99,      99,      99,      99,
+      99,      99,      99,      99,      99,      99,      99,      99,
+      99,      99,      99,      99,      99,      99,      99,      99,
+  // JOY1R  JOY1L    JOY1D    JOY1U    JOY1F   JOY1F2   JOY1F3
+      75,      74,      73,      72,      76,      77,      78,      99,
+  // JOY2R  JOY2L    JOY2D    JOY2U    JOY2F   JOY2F2   JOY2F3
+      51,      50,      49,      48,      52,      53,      54,      99
 };
 
 namespace CPC464 {
@@ -188,9 +188,15 @@ namespace CPC464 {
     return retval;
   }
 
-  EP128EMU_REGPARM1 uint8_t CPC464VM::Z80_::readOpcodeSecondByte()
+  EP128EMU_REGPARM2 uint8_t CPC464VM::Z80_::readOpcodeSecondByte(
+      const bool *invalidOpcodeTable)
   {
     uint16_t  addr = (uint16_t(R.PC.W.l) + uint16_t(1)) & uint16_t(0xFFFF);
+    if (invalidOpcodeTable) {
+      uint8_t b = vm.memory.readNoDebug(addr);
+      if (EP128EMU_UNLIKELY(invalidOpcodeTable[b]))
+        return b;
+    }
     vm.memoryWaitM1();
     uint8_t   retval = vm.memory.readOpcode(addr);
     vm.updateCPUHalfCycles(4);
@@ -445,7 +451,7 @@ namespace CPC464 {
 
   uint8_t CPC464VM::ioPortReadCallback(void *userData, uint16_t addr)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     uint8_t   retval = 0xFF;
     if ((addr & 0x4000) == 0) {         // CRTC (register number is in A8-A9)
       if ((addr & 0x0300) == 0x0300)    // read CRTC register
@@ -483,7 +489,7 @@ namespace CPC464 {
   void CPC464VM::ioPortWriteCallback(void *userData,
                                      uint16_t addr, uint8_t value)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     if ((addr & 0xC000) == 0x4000) {    // gate array
       switch (value & 0xC0) {
       case 0x00:                // select pen
@@ -572,7 +578,7 @@ namespace CPC464 {
 
   uint8_t CPC464VM::ioPortDebugReadCallback(void *userData, uint16_t addr)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     if (addr < 0x00A0) {
       switch (addr & 0x00F0) {
       case 0x0000:                      // CRTC registers
@@ -725,7 +731,7 @@ namespace CPC464 {
   EP128EMU_REGPARM2 void CPC464VM::hSyncStateChangeCallback(void *userData,
                                                             bool newState)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     if (!newState) {
       vm.gateArrayIRQCounter++;
       if (vm.gateArrayVSyncDelay > 0) {
@@ -746,7 +752,7 @@ namespace CPC464 {
   EP128EMU_REGPARM2 void CPC464VM::vSyncStateChangeCallback(void *userData,
                                                             bool newState)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     if (newState)
       vm.gateArrayVSyncDelay = 2;
     vm.videoRenderer.crtcVSyncStateChange(newState);
@@ -754,7 +760,7 @@ namespace CPC464 {
 
   void CPC464VM::tapeCallback(void *userData)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     vm.tapeSamplesRemaining += vm.tapeSamplesPerCRTCCycle;
     if (vm.tapeSamplesRemaining >= 0) {
       // assume tape sample rate < crtcFrequency
@@ -769,7 +775,7 @@ namespace CPC464 {
 
   void CPC464VM::demoPlayCallback(void *userData)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     while (!vm.demoTimeCnt) {
       if (vm.haveTape() &&
           vm.getIsTapeMotorOn() && vm.getTapeButtonState() != 0) {
@@ -815,13 +821,13 @@ namespace CPC464 {
 
   void CPC464VM::demoRecordCallback(void *userData)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     vm.demoTimeCnt++;
   }
 
   void CPC464VM::videoCaptureCallback(void *userData)
   {
-    CPC464VM&  vm = *(reinterpret_cast<CPC464VM *>(userData));
+    CPC464VM& vm = *(reinterpret_cast<CPC464VM *>(userData));
     vm.videoCapture->runOneCycle(vm.soundOutputSignal);
   }
 
@@ -898,15 +904,13 @@ namespace CPC464 {
     for (int i = 0; i < 16; i++) {
       for (int j = 0; j < 8; j++) {
         if ((keyboardState[i] & uint8_t(1 << j)) == 0) {
-          for (int k = 0; k < 2; k++) {
-            int     cpcKeyNum = p[k];
-            if (cpcKeyNum < 80) {
-              cpcKeyboardState[cpcKeyNum >> 3] &=
-                  uint8_t(0xFF ^ (1 << (cpcKeyNum & 7)));
-            }
+          int     cpcKeyNum = *p;
+          if (cpcKeyNum < 80) {
+            cpcKeyboardState[cpcKeyNum >> 3] &=
+                uint8_t(0xFF ^ (1 << (cpcKeyNum & 7)));
           }
         }
-        p = p + 2;
+        p++;
       }
     }
     updatePPIState();
@@ -1164,11 +1168,11 @@ namespace CPC464 {
     // load file into memory
     std::vector<uint8_t>  buf;
     buf.resize(0x4000);
-    std::FILE   *f = std::fopen(fileName, "rb");
+    std::FILE   *f = Ep128Emu::fileOpen(fileName, "rb");
     if (!f)
       throw Ep128Emu::Exception("cannot open ROM file");
     std::fseek(f, 0L, SEEK_END);
-    if (ftell(f) < long(offs + 0x4000)) {
+    if (std::ftell(f) < long(offs + 0x4000)) {
       std::fclose(f);
       throw Ep128Emu::Exception("ROM file is shorter than expected");
     }
@@ -1286,7 +1290,11 @@ namespace CPC464 {
     (void) nTracks_;
     (void) nSides_;
     (void) nSectorsPerTrack_;
+#ifndef ENABLE_SDEXT
     if (n < 0 || n > 7)
+#else
+    if (n < 0 || n > 8)
+#endif
       throw Ep128Emu::Exception("invalid disk drive number");
     if (n < 4)
       floppyDrive->openDiskImage(n, fileName_.c_str());
@@ -1527,30 +1535,7 @@ namespace CPC464 {
 
   void CPC464VM::listCPURegisters(std::string& buf) const
   {
-    char    tmpBuf[256];
-    const Ep128::Z80_REGISTERS& r = z80.getReg();
-    std::sprintf(
-        &(tmpBuf[0]),
-        " PC   AF   BC   DE   HL   SP   IX   IY    F   ........\n"
-        "%04X %04X %04X %04X %04X %04X %04X %04X   F'  ........\n"
-        "      AF'  BC'  DE'  HL'  IM   I    R    IFF1 .\n"
-        "     %04X %04X %04X %04X  %02X   %02X   %02X   IFF2 .",
-        (unsigned int) z80.getProgramCounter(), (unsigned int) r.AF.W,
-        (unsigned int) r.BC.W, (unsigned int) r.DE.W,
-        (unsigned int) r.HL.W, (unsigned int) r.SP.W,
-        (unsigned int) r.IX.W, (unsigned int) r.IY.W,
-        (unsigned int) r.altAF.W, (unsigned int) r.altBC.W,
-        (unsigned int) r.altDE.W, (unsigned int) r.altHL.W,
-        (unsigned int) r.IM, (unsigned int) r.I, (unsigned int) r.R);
-    static const char *z80Flags_ = "SZ1H1VNC";
-    for (int i = 0; i < 8; i++) {
-      tmpBuf[i + 46] = ((r.AF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-      tmpBuf[i + 101] =
-          ((r.altAF.B.l & uint8_t(128 >> i)) ? z80Flags_[i] : '-');
-    }
-    tmpBuf[156] = '0' + char(bool(r.IFF1));
-    tmpBuf[204] = '0' + char(bool(r.IFF2));
-    buf = &(tmpBuf[0]);
+    listZ80Registers(buf, z80);
   }
 
   void CPC464VM::listIORegisters(std::string& buf) const

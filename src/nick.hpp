@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2010 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -25,7 +25,6 @@
 namespace Ep128 {
 
   class Memory;
-  class Nick;
 
   struct NickLPB {
     int       nLines;           // total number of lines in this LPB (1..256)
@@ -44,12 +43,13 @@ namespace Ep128 {
                                 // 5: CH64
                                 // 6: invalid mode
                                 // 7: LPIXEL
-    bool      altInd0;          // +4 to palette index if b6 of charcode is set
-    bool      altInd1;          // +2 to palette index if b7 of charcode is set
-    bool      lsbAlt;           // +4 to palette index if b0 of bitmap is set
-    bool      msbAlt;           // +2 to palette index if b7 of bitmap is set
+    bool      altInd0;          // | 4 to palette index if b6 of charcode is set
+    bool      altInd1;          // | 2 to palette index if b7 of charcode is set
+    bool      lsbAlt;           // | 4 to palette index if b0 of bitmap is set
+    bool      msbAlt;           // | 2 to palette index if b7 of bitmap is set
     uint8_t   leftMargin;
     uint8_t   rightMargin;
+    uint8_t   dataBusState;
     uint8_t   palette[16];      // 0..7 from LPB, 8..15 from FIXBIAS
     // ----------------
     uint16_t  ld1Addr;          // LD1 current address
@@ -58,139 +58,93 @@ namespace Ep128 {
 
   // --------------------------------------------------------------------------
 
-  class NickRenderer {
-   protected:
+  class Nick {
+   private:
     struct NickTables {
       uint8_t fourColors[1024];
       uint8_t sixteenColors[512];
       NickTables();
     };
     static NickTables t;
-    NickLPB&  lpb;
-    const uint8_t *videoMemory;
-    EP128EMU_INLINE void renderByte2ColorsL(uint8_t*& buf_, uint8_t b1,
-                                            uint8_t paletteOffset);
-    EP128EMU_INLINE void renderByte4ColorsL(uint8_t*& buf_, uint8_t b1,
-                                            uint8_t paletteOffset);
-    EP128EMU_INLINE void renderByte16ColorsL(uint8_t*& buf_, uint8_t b1);
-    EP128EMU_INLINE void renderByte16ColorsL(uint8_t*& buf_, uint8_t b1,
-                                             uint8_t paletteOffset);
-    EP128EMU_INLINE void renderByte256ColorsL(uint8_t*& buf_, uint8_t b1);
-    EP128EMU_INLINE void renderBytes2Colors(uint8_t*& buf_,
-                                            uint8_t b1, uint8_t b2,
+    // --------
+    EP128EMU_INLINE void renderByte2ColorsL(uint8_t b1, uint8_t paletteOffset);
+    EP128EMU_INLINE void renderByte4ColorsL(uint8_t b1, uint8_t paletteOffset);
+    EP128EMU_INLINE void renderByte16ColorsL(uint8_t b1);
+    EP128EMU_INLINE void renderByte16ColorsL(uint8_t b1, uint8_t paletteOffset);
+    EP128EMU_INLINE void renderByte256ColorsL(uint8_t b1);
+    EP128EMU_INLINE void renderBytes2Colors(uint8_t b1, uint8_t b2,
                                             uint8_t paletteOffset1,
                                             uint8_t paletteOffset2);
-    EP128EMU_INLINE void renderBytes4Colors(uint8_t*& buf_,
-                                            uint8_t b1, uint8_t b2,
+    EP128EMU_INLINE void renderBytes4Colors(uint8_t b1, uint8_t b2,
                                             uint8_t paletteOffset1,
                                             uint8_t paletteOffset2);
-    EP128EMU_INLINE void renderBytes16Colors(uint8_t*& buf_,
-                                             uint8_t b1, uint8_t b2);
-    EP128EMU_INLINE void renderBytes16Colors(uint8_t*& buf_,
-                                             uint8_t b1, uint8_t b2,
+    EP128EMU_INLINE void renderBytes16Colors(uint8_t b1, uint8_t b2);
+    EP128EMU_INLINE void renderBytes16Colors(uint8_t b1, uint8_t b2,
                                              uint8_t paletteOffset1,
                                              uint8_t paletteOffset2);
-    EP128EMU_INLINE void renderBytes256Colors(uint8_t*& buf_,
-                                              uint8_t b1, uint8_t b2);
-    EP128EMU_INLINE void renderBytesAttribute(uint8_t*& buf_,
-                                              uint8_t b1, uint8_t attr);
-   public:
-    NickRenderer(NickLPB& lpb_, const uint8_t *videoMemory_)
-      : lpb(lpb_), videoMemory(videoMemory_)
-    {
-    }
-    virtual ~NickRenderer()
-    {
-    }
-    // render 16 pixels to 'buf'; called 46 times per line
-    virtual EP128EMU_REGPARM2 void doRender(uint8_t*& buf) = 0;
-  };
-
-#ifdef DECLARE_RENDERER
-#  undef DECLARE_RENDERER
-#endif
-#define DECLARE_RENDERER(x)                     \
-class x : public NickRenderer {                 \
- public:                                        \
-  x(NickLPB& lpb_, const uint8_t *videoMemory_) \
-    : NickRenderer(lpb_, videoMemory_) { }      \
-  virtual ~x() { }                              \
-  virtual EP128EMU_REGPARM2 void doRender(uint8_t*& buf);   \
-}
-
-  DECLARE_RENDERER(NickRenderer_Blank);
-  DECLARE_RENDERER(NickRenderer_Generic);
-  DECLARE_RENDERER(NickRenderer_PIXEL_2);
-  DECLARE_RENDERER(NickRenderer_PIXEL_2_LSBALT);
-  DECLARE_RENDERER(NickRenderer_PIXEL_2_MSBALT);
-  DECLARE_RENDERER(NickRenderer_PIXEL_2_LSBALT_MSBALT);
-  DECLARE_RENDERER(NickRenderer_PIXEL_4);
-  DECLARE_RENDERER(NickRenderer_PIXEL_4_LSBALT);
-  DECLARE_RENDERER(NickRenderer_PIXEL_16);
-  DECLARE_RENDERER(NickRenderer_PIXEL_256);
-  DECLARE_RENDERER(NickRenderer_ATTRIBUTE);
-  DECLARE_RENDERER(NickRenderer_CH256_2);
-  DECLARE_RENDERER(NickRenderer_CH256_4);
-  DECLARE_RENDERER(NickRenderer_CH256_16);
-  DECLARE_RENDERER(NickRenderer_CH256_256);
-  DECLARE_RENDERER(NickRenderer_CH128_2);
-  DECLARE_RENDERER(NickRenderer_CH128_2_ALTIND1);
-  DECLARE_RENDERER(NickRenderer_CH128_4);
-  DECLARE_RENDERER(NickRenderer_CH128_16);
-  DECLARE_RENDERER(NickRenderer_CH128_256);
-  DECLARE_RENDERER(NickRenderer_CH64_2);
-  DECLARE_RENDERER(NickRenderer_CH64_2_ALTIND0);
-  DECLARE_RENDERER(NickRenderer_CH64_2_ALTIND1);
-  DECLARE_RENDERER(NickRenderer_CH64_2_ALTIND0_ALTIND1);
-  DECLARE_RENDERER(NickRenderer_CH64_4);
-  DECLARE_RENDERER(NickRenderer_CH64_4_ALTIND0);
-  DECLARE_RENDERER(NickRenderer_CH64_16);
-  DECLARE_RENDERER(NickRenderer_CH64_256);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_2);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_2_LSBALT);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_2_MSBALT);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_2_LSBALT_MSBALT);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_4);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_4_LSBALT);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_16);
-  DECLARE_RENDERER(NickRenderer_LPIXEL_256);
-
-#undef DECLARE_RENDERER
-
-  class NickRendererTable {
-   private:
-    NickRenderer  **t;
-   public:
-    NickRendererTable(NickLPB& lpb, const uint8_t *videoMemory_);
-    virtual ~NickRendererTable();
-    NickRenderer& getRenderer(const NickLPB& lpb);
-  };
-
-  // --------------------------------------------------------------------------
-
-  class Nick {
-   private:
+    EP128EMU_INLINE void renderBytes256Colors(uint8_t b1, uint8_t b2);
+    EP128EMU_INLINE void renderBytesAttribute(uint8_t b1, uint8_t attr);
+    // --------
+    static EP128EMU_REGPARM1 void render_Generic(Nick& nick);
+    static EP128EMU_REGPARM1 void render_Blank(Nick& nick);
+    static EP128EMU_REGPARM1 void render_Border(Nick& nick);
+    static EP128EMU_REGPARM1 void render_Sync(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_2(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_2_LSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_2_MSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_2_LSBALT_MSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_4(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_4_LSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_16(Nick& nick);
+    static EP128EMU_REGPARM1 void render_PIXEL_256(Nick& nick);
+    static EP128EMU_REGPARM1 void render_ATTRIBUTE(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH256_2(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH256_4(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH256_16(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH256_256(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH128_2(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH128_2_ALTIND1(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH128_4(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH128_16(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH128_256(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_2(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_2_ALTIND0(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_2_ALTIND1(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_2_ALTIND0_ALTIND1(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_4(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_4_ALTIND0(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_16(Nick& nick);
+    static EP128EMU_REGPARM1 void render_CH64_256(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_2(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_2_LSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_2_MSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_2_LSBALT_MSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_4(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_4_LSBALT(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_16(Nick& nick);
+    static EP128EMU_REGPARM1 void render_LPIXEL_256(Nick& nick);
+    // --------
     NickLPB   lpb;              // current LPB
     uint16_t  lptBaseAddr;      // LPT base address
     uint16_t  lptCurrentAddr;   // current LPT address
     int       linesRemaining;   // lines remaining until loading next LPB
     const uint8_t *videoMemory;
-    NickRenderer  *currentRenderer;     // NULL if border only
-    NickRendererTable   renderers;
+    EP128EMU_REGPARM1 void  (*currentRenderer)(Nick& nick);
+    bool      displayEnabled;   // false: current slot is border
     uint8_t   currentSlot;      // 0 to 56
     uint8_t   borderColor;
-    uint8_t   dataBusState;
     // bit 7: 1 until the end of line if port 83h bit 6 has changed to 1
     // bit 6: 1 until the end of line if port 83h bit 7 is 0 and bit 6 is 1
     uint8_t   lptFlags;
     uint8_t   *lineBuf;         // 57 slots = 912 pixels
     uint8_t   *lineBufPtr;
-    uint8_t   savedBorderColor;
     bool      vsyncFlag;
     uint8_t   port0Value;       // last value written to port 80h
     uint8_t   port3Value;       // last value written to port 83h
     // --------
+    EP128EMU_REGPARM1 void setRenderer();
     void clearLineBuffer();
+    EP128EMU_REGPARM1 void renderSlot_noData(); // render from floating bus
    protected:
     /*!
      * Called when the IRQ state changes, with a true parameter when the
@@ -253,7 +207,7 @@ class x : public NickRenderer {                 \
     {
       return currentSlot;
     }
-    void runOneSlot();
+    EP128EMU_REGPARM1 void runOneSlot();
     void saveState(Ep128Emu::File::Buffer&);
     void saveState(Ep128Emu::File&);
     void loadState(Ep128Emu::File::Buffer&);

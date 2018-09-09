@@ -1,7 +1,7 @@
 
 // ep128emu -- portable Enterprise 128 emulator
-// Copyright (C) 2003-2009 Istvan Varga <istvanv@users.sourceforge.net>
-// http://sourceforge.net/projects/ep128emu/
+// Copyright (C) 2003-2016 Istvan Varga <istvanv@users.sourceforge.net>
+// https://github.com/istvan-v/ep128emu/
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,15 +27,23 @@
 
 namespace Ep128 {
 
+  class Z80;
+
   class Z80Disassembler {
    private:
     static const char *opcodeNames;
+#ifndef Z80_ENABLE_CMOS
     static const char *operandTypes[75];
+    static const unsigned char alternateOperandTypeTable[75];
+    static const unsigned char noPrefixOperandTypeTable[75];
+#else
+    static const char *operandTypes[76];
+    static const unsigned char alternateOperandTypeTable[76];
+    static const unsigned char noPrefixOperandTypeTable[76];
+#endif
     static const unsigned char opcodeTable[768];
     static const unsigned char opcodeTableCB[768];
     static const unsigned char opcodeTableED[768];
-    static const unsigned char alternateOperandTypeTable[75];
-    static const unsigned char noPrefixOperandTypeTable[75];
     static void parseOperand(const std::vector< std::string >& args,
                              size_t argOffs, size_t argCnt, int& opType,
                              bool& haveOpValue, uint32_t& opValue);
@@ -72,6 +80,8 @@ namespace Ep128 {
                                         bool isCPUAddress = false,
                                         int32_t offs = 0);
   };
+
+  void listZ80Registers(std::string& buf, const Z80& z80);
 
 }       // namespace Ep128
 
