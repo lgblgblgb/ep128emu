@@ -50,7 +50,6 @@ matrix:
       before_script:
         - set +e
         - uname -a ; lsb_release -a || true ; hostname ; pwd ; df -h ; id -a
-        - hostname
         - set -e
         - sdl-config --version --prefix --cflags --libs --static-libs || true
         - set +e
@@ -58,7 +57,8 @@ matrix:
         - uptime
       script:
         - set -e
-        - scons
+        - scons -j 2
+        - ldd ./ep128emu || true
         - ls -la
         - uptime ; pwd
     - name: MacOS native compilation
@@ -68,20 +68,20 @@ matrix:
         hostname: lgb
         homebrew:
           packages:
-            - scons
+            - create-dmg
+            - curl
             - FLTK
-            - libsndfile
-            - lua
             - libjpeg
             - libpng
+            - libsndfile
+            - lua
             - lzlib
-            - sdl
             - portaudio
-            - create-dmg
+            - scons
+            - sdl
       before_script:
         - set +e
         - uname -a ; hostname ; pwd ; df -h ; id -a
-        - hostname
         - set -e
         - sdl-config --version --prefix --cflags --libs --static-libs || true
         - set +e
@@ -89,7 +89,8 @@ matrix:
         - uptime
       script:
         - set -e
-        - scons
+        - scons -j 2
+        - otool -L ./ep128emu
         - ls -la
         - uptime ; pwd
 
