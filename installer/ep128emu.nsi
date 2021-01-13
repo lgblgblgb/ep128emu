@@ -367,11 +367,6 @@ Section "ep128emu source code" SecSrc
 
   File "..\util\*.patch"
 
-  SetOutPath "$INSTDIR\src\util\dtf"
-
-  File "..\util\dtf\*.cpp"
-  File "..\util\dtf\*.s"
-
   SetOutPath "$INSTDIR\src\util\epcompress"
 
   SetOutPath "$INSTDIR\src\util\epcompress\src"
@@ -387,7 +382,6 @@ Section "ep128emu source code" SecSrc
 
   SetOutPath "$INSTDIR\src\util\epcompress\z80_asm"
 
-  File "..\util\epcompress\z80_asm\*.f"
   File "..\util\epcompress\z80_asm\*.py"
   File "..\util\epcompress\z80_asm\*.s"
 
@@ -527,7 +521,6 @@ Section "Install epimgconv and other utilities" SecUtils
 
   SetOutPath "$INSTDIR"
 
-  File /nonfatal "..\dtf.exe"
   File /nonfatal "..\epcompress.exe"
   File /nonfatal "..\epimgconv.exe"
   File /nonfatal "..\epimgconv_gui.exe"
