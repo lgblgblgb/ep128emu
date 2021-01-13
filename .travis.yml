@@ -52,7 +52,7 @@ matrix:
         - uname -a ; lsb_release -a || true ; hostname ; pwd ; df -h ; id -a
         - hostname
         - set -e
-        - sdl-config --version --prefix --cflags --libs --static-libs
+        - sdl-config --version --prefix --cflags --libs --static-libs || true
         - set +e
         - ps auxwwww || true
         - uptime
@@ -75,12 +75,15 @@ matrix:
             - libjpeg
             - libpng
             - lzlib
+            - sdl
+            - portaudio
+            - create-dmg
       before_script:
         - set +e
         - uname -a ; hostname ; pwd ; df -h ; id -a
         - hostname
         - set -e
-        - sdl-config --version --prefix --cflags --libs --static-libs
+        - sdl-config --version --prefix --cflags --libs --static-libs || true
         - set +e
         - ps auxwwww || true
         - uptime
