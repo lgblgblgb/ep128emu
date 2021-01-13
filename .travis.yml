@@ -18,6 +18,7 @@ matrix:
             - dpkg
             - fakeroot
             - file
+            - fluid
             - gawk
             - git
             - gcc
