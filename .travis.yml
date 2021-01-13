@@ -90,8 +90,10 @@ matrix:
       script:
         - set -e
         - scons -j 2
-        - otool -L ./ep128emu
+        - resource/travis/osx-dist || true
         - ls -la
+        - ls -la .dist/osx || true
+        - ls -la .dist/ || true
         - uptime ; pwd
 
 

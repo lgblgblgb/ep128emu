@@ -1,0 +1,15 @@
+#!/bin/bash
+DIR=".dist/osx"
+mkdir -p $DIR || exit 1
+for BIN in ./ep128emu ; do
+	otool -L $BIN
+	cp $BIN $DIR/$BIN
+	for lib in `otool -L $BIN | awk '$1 ~ /^\/usr\/local\/opt\// { print $1 }'` ; do
+		newlib="ep128emu-`basename $lib`"
+		cat $lib > $DIR/$newlib
+		install_name_tool -change $lib @executable_path/$newlib $DIR/$BIN
+	done
+	otool -L $DIR/$BIN
+done
+cd $DIR
+zip ../osx-dist.zip *
