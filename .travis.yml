@@ -3,6 +3,8 @@ sudo: required
 language: c++
 
 matrix:
+  allow_failures:
+    - os: osx
   include:
     - name: Linux native compilation
       os: linux
@@ -44,7 +46,7 @@ matrix:
             - wget
             - wine
             - zip
-      compiler: gcc
+      compiler: g++
       before_script:
         - set +e
         - uname -a ; lsb_release -a || true ; hostname ; pwd ; df -h ; id -a
@@ -59,6 +61,35 @@ matrix:
         - scons
         - ls -la
         - uptime ; pwd
+    - name: MacOS native compilation
+      os: osx
+      osx_image: xcode11
+      addons:
+        hostname: lgb
+        homebrew:
+          packages:
+            - scons
+            - FLTK
+            - libsndfile
+            - lua
+            - libjpeg
+            - libpng
+            - lzlib
+      before_script:
+        - set +e
+        - uname -a ; hostname ; pwd ; df -h ; id -a
+        - hostname
+        - set -e
+        - sdl-config --version --prefix --cflags --libs --static-libs
+        - set +e
+        - ps auxwwww || true
+        - uptime
+      script:
+        - set -e
+        - scons
+        - ls -la
+        - uptime ; pwd
+
 
 env:
   global:
