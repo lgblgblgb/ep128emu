@@ -1,0 +1,21 @@
+#!/bin/bash
+DIR=".dist/osx"
+mkdir -p $DIR || exit 1
+for BIN in ./ep128emu ./epcompress ./epimgconv ./epmakecfg ./iview2png ./tapeedit ; do
+	if [ -s $BIN ]; then
+		otool -L $BIN
+		cp $BIN $DIR/$BIN
+		for lib in `otool -L $BIN | awk '$1 ~ /^\/usr\/local\/opt\// { print $1 }'` ; do
+			newlib="ep128emu-`basename $lib`"
+			cat $lib > $DIR/$newlib
+			install_name_tool -change $lib @executable_path/$newlib $DIR/$BIN
+		done
+		otool -L $DIR/$BIN
+	else
+		echo "ERROR: $BIN does not exist"
+	fi
+done
+cp README NEWS COPYING $DIR/
+cd $DIR || exit 1
+zip ../osx-dist.zip * || exit 1
+exit 0
